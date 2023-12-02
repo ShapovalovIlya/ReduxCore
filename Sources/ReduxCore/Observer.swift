@@ -30,15 +30,15 @@ public final class Observer<State> {
         observe: @escaping (State) -> Status
     ) where Scope: Equatable {
         self.queue = queue
-        self.observe = { newState in
-            guard let state = self.state else {
-                self.state = newState
+        self.observe = { [weak self] newState in
+            guard let state = self?.state else {
+                self?.state = newState
                 return observe(newState)
             }
             
             guard scope(state) != scope(newState) else { return .active }
             
-            self.state = newState
+            self?.state = newState
             return observe(newState)
         }
     }
@@ -52,11 +52,11 @@ public final class Observer<State> {
         observe: @escaping (State) -> Status
     ) where State: Equatable {
         self.queue = queue
-        self.observe = { newState in
-            guard self.state != newState else {
+        self.observe = { [weak self] newState in
+            guard self?.state != newState else {
                 return .active
             }
-            self.state = newState
+            self?.state = newState
             return observe(newState)
         }
     }

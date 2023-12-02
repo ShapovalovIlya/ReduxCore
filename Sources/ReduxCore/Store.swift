@@ -9,12 +9,12 @@ import Foundation
 
 public final class Store<State, Action> {
     //MARK: - Public properties
-    public typealias GraphStore = Graph<State, Action>
-    public typealias GraphObserver = Observer<GraphStore>
+    public typealias StoreGraph = Graph<State, Action>
+    public typealias GraphObserver = Observer<StoreGraph>
     public typealias Reducer = (inout State, Action) -> Void
     
     public let queue: DispatchQueue = .init(label: "Store queue")
-    public var graph: GraphStore { .init(state: state, dispatch: dispatch) }
+    public var graph: StoreGraph { .init(state: state, dispatch: dispatch) }
     
     //MARK: - Private properties
     private var observers: Set<GraphObserver> = .init()
