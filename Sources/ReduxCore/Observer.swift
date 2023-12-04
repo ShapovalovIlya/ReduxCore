@@ -33,7 +33,7 @@ public final class Observer<State> {
         self.queue = queue
         self.observe = { [weak self] newState in
             guard let self else { return .dead }
-            return process(newState) { self.state.map(scope) != scope($0) } ?? observe(newState)
+            return process(newState) { self.state.map(scope) == scope($0) } ?? observe(newState)
         }
     }
     
@@ -48,7 +48,7 @@ public final class Observer<State> {
         self.queue = queue
         self.observe = { [weak self] newState in
             guard let self else { return .dead }
-            return process(newState) { self.state != $0 } ?? observe(newState)
+            return process(newState) { self.state == $0 } ?? observe(newState)
         }
     }
 
@@ -68,9 +68,9 @@ public final class Observer<State> {
     @inline(__always)
     func process(
         _ newState: State,
-        isDiffer: (State) -> Bool
+        isEqual: (State) -> Bool
     ) -> Status? {
-        guard isDiffer(newState) else { return .active }
+        if isEqual(newState) { return .active }
         lock.withLock { state = newState }
         return nil
     }
