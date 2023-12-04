@@ -84,6 +84,59 @@ final class ObserverTests: XCTestCase {
         
         XCTAssertEqual(counter, 3)
     }
+    
+    func test_dataRace() {
+        var counter = 0
+        let sut = Observer<Int> { state in
+            counter = state
+            return .active
+        }
+        
+        DispatchQueue.global(qos: .background).sync {
+            for i in 0...50 {
+                _ = sut.observe?(i)
+            }
+        }
+        
+        DispatchQueue.global(qos: .utility).sync {
+            for i in 0...50 {
+                _ = sut.observe?(i)
+            }
+        }
+        XCTAssertEqual(counter, 50)
+    }
+    
+    func test_deadlock() {
+        var counter = 0
+        let sut = Observer<Int> { state in
+            counter = state
+            return .active
+        }
+        
+        for i in 0...50 {
+            sut.queue.sync {
+                _ = sut.observe?(i)
+            }
+        }
+        
+        XCTAssertEqual(counter, 50)
+    }
+    
+//    func test_liveLock() {
+//        var counter = 0
+//        let sut = Observer<Int> { state in
+//            counter = state
+//            return .active
+//        }
+//        
+//        for i in 0...50 {
+//            sut.queue.async {
+//                _ = sut.observe?(i)
+//            }
+//        }
+//        
+//        XCTAssertEqual(counter, 50)
+//    }
 
 }
 

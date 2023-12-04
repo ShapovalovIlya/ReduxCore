@@ -9,7 +9,8 @@ import Foundation
 
 public final class Observer<State> {
     //MARK: - Private properties
-    private var state: State?
+    @usableFromInline let lock = NSLock()
+    @usableFromInline var state: State?
     
     //MARK: - Internal properties
     private(set) var observe: ((State) -> Status)?
@@ -25,21 +26,14 @@ public final class Observer<State> {
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observe:  Closure which called when `Observer` emit new `State`
     public init<Scope>(
-        queue: DispatchQueue = .global(),
+        queue: DispatchQueue = .init(label: "ObserverQueue"),
         scope: @escaping (State) -> Scope,
         observe: @escaping (State) -> Status
     ) where Scope: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
-            guard let state = self?.state else {
-                self?.state = newState
-                return observe(newState)
-            }
-            
-            guard scope(state) != scope(newState) else { return .active }
-            
-            self?.state = newState
-            return observe(newState)
+            guard let self else { return .dead }
+            return process(newState) { self.state.map(scope) != scope($0) } ?? observe(newState)
         }
     }
     
@@ -48,16 +42,13 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
     public init(
-        queue: DispatchQueue = .global(),
+        queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
     ) where State: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
-            guard self?.state != newState else {
-                return .active
-            }
-            self?.state = newState
-            return observe(newState)
+            guard let self else { return .dead }
+            return process(newState) { self.state != $0 } ?? observe(newState)
         }
     }
 
@@ -66,11 +57,22 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
     public init(
-        queue: DispatchQueue = .global(),
+        queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
     ) {
         self.queue = queue
         self.observe = observe
+    }
+    
+    @inlinable
+    @inline(__always)
+    func process(
+        _ newState: State,
+        isDiffer: (State) -> Bool
+    ) -> Status? {
+        guard isDiffer(newState) else { return .active }
+        lock.withLock { state = newState }
+        return nil
     }
 
 }
