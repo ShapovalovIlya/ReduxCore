@@ -19,6 +19,33 @@ public final class Observer<State> {
     public let queue: DispatchQueue
     
     //MARK: - init(_:)
+    ///  Create new `Observer` object.
+    /// - Parameters:
+    ///   - queue: Queue which used for publishing new state
+    ///   - observe: Closure which called when `Observer` emit new `State`
+    public init(
+        queue: DispatchQueue = .init(label: "ObserverQueue"),
+        observe: @escaping (State) -> Status
+    ) {
+        self.queue = queue
+        self.observe = observe
+    }
+    
+    ///  Create new `Observer` object. `Observer` emit only when new `State` is different than older one.
+    /// - Parameters:
+    ///   - queue: Queue which used for publishing new state
+    ///   - observe: Closure which called when `Observer` emit new `State`
+    public init(
+        queue: DispatchQueue = .init(label: "ObserverQueue"),
+        observe: @escaping (State) -> Status
+    ) where State: Equatable {
+        self.queue = queue
+        self.observe = { [weak self] newState in
+            guard let self else { return .dead }
+            return process(newState) { self.state == $0 } ?? observe(newState)
+        }
+    }
+    
     ///  Create new `Observer` object. `Observer` emit only when new `State` is different than older one.
     ///  Different between old and new state compute based on selected scope.
     /// - Parameters:
@@ -37,33 +64,26 @@ public final class Observer<State> {
         }
     }
     
-    ///  Create new `Observer` object. `Observer` emit only when new `State` is different than older one.
+    ///  Create new `Observer` object. `Observer` emit only when new `ScopedState` is different than older one.
+    ///  Different between old and new state compute based on selected scope.
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
-    ///   - observe: Closure which called when `Observer` emit new `State`
-    public init(
+    ///   - scope:  Closure result determine source of difference between old `State` and new one.
+    ///   - observeScope:  Closure which called when `Observer` emit new `ScopedState`
+    public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
-        observe: @escaping (State) -> Status
-    ) where State: Equatable {
+        scope: @escaping (State) -> Scope,
+        observeScope: @escaping (Scope) -> Status
+    ) where Scope: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
             guard let self else { return .dead }
-            return process(newState) { self.state == $0 } ?? observe(newState)
+            let scoped = scope(newState)
+            return process(newState) { _ in self.state.map(scope) == scoped } ?? observeScope(scoped)
         }
     }
-
-    ///  Create new `Observer` object.
-    /// - Parameters:
-    ///   - queue: Queue which used for publishing new state
-    ///   - observe: Closure which called when `Observer` emit new `State`
-    public init(
-        queue: DispatchQueue = .init(label: "ObserverQueue"),
-        observe: @escaping (State) -> Status
-    ) {
-        self.queue = queue
-        self.observe = observe
-    }
     
+    //MARK: - Methods
     @inlinable
     @inline(__always)
     func process(

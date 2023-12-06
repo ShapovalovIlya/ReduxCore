@@ -45,10 +45,10 @@ final class ObserverTests: XCTestCase {
     
     func test_publishUniqueStateWithGlobalScope() {
         var counter = 0
-        let sut = Observer<Int>(scope: { $0 }) { _ in
+        let sut = Observer<Int>(scope: { $0 }, observe: { _ in
             counter += 1
             return .active
-        }
+        })
         
         _ = sut.observe?(1)
         _ = sut.observe?(1)
@@ -57,12 +57,25 @@ final class ObserverTests: XCTestCase {
         XCTAssertEqual(counter, 1)
     }
     
+    func test_publishUniqueScopedState() {
+        var counter = 0
+        let sut = Observer<Int>(scope: { $0 * 2 }, observeScope: { multiplied in
+            counter += multiplied
+            return .active
+        })
+        
+        _ = sut.observe?(1)
+        _ = sut.observe?(1)
+        
+        XCTAssertEqual(counter, 2)
+    }
+    
     func test_publishStateWithNestedScopeOnlyOnce() {
         var counter = 0
-        let sut = Observer<MockState>(scope: { $0.nested }) { _ in
+        let sut = Observer<MockState>(scope: { $0.nested }, observe: { _ in
             counter += 1
             return .active
-        }
+        })
         
         _ = sut.observe?(.init(value: 1, nested: .init(value: 1)))
         _ = sut.observe?(.init(value: 2, nested: .init(value: 1)))
@@ -73,10 +86,10 @@ final class ObserverTests: XCTestCase {
     
     func test_publishStateWithNestedScopeMultipleTimes() {
         var counter = 0
-        let sut = Observer<MockState>(scope: { $0.nested }) { _ in
+        let sut = Observer<MockState>(scope: { $0.nested }, observe: { _ in
             counter += 1
             return .active
-        }
+        })
         
         _ = sut.observe?(.init(value: 1, nested: .init(value: 1)))
         _ = sut.observe?(.init(value: 1, nested: .init(value: 2)))
