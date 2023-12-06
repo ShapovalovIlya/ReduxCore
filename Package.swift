@@ -7,7 +7,7 @@ let package = Package(
     name: "ReduxCore",
     platforms: [
         .iOS(.v13),
-        .macOS(.v10_15)
+        .macOS(.v10_13)
     ],
     products: [
         .library(name: "ReduxCore", targets: ["ReduxCore"]),

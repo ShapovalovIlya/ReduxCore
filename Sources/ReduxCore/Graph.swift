@@ -8,7 +8,7 @@
 import Foundation
 
 public struct Graph<State, Action> {
-    private let state: State
+    public let state: State
     public let dispatch: (Action) -> Void
     
     init(
