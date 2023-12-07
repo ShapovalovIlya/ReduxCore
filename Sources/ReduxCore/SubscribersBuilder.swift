@@ -7,14 +7,14 @@
 
 import Foundation
 
-extension Store {
+public extension Store {
     @resultBuilder
     struct SubscribersBuilder {
-        static func buildBlock(_ components: GraphObserver...) -> [GraphObserver] {
+        public static func buildBlock(_ components: GraphObserver...) -> [GraphObserver] {
             components
         }
         
-        static func buildArray(_ components: [[GraphObserver]]) -> [GraphObserver] {
+        public static func buildArray(_ components: [[GraphObserver]]) -> [GraphObserver] {
             components.flatMap { $0 }
         }
         
