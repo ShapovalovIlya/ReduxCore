@@ -49,8 +49,8 @@ public final class Store<State, Action> {
     public func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
         queue.sync {
-            observers.forEach { self.observers.insert($0) }
-            observers.forEach(self.notify)
+            self.observers.formUnion(observers)
+            observers.forEach(notify)
         }
     }
     
