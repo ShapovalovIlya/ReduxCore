@@ -134,22 +134,6 @@ final class ObserverTests: XCTestCase {
         
         XCTAssertEqual(counter, 50)
     }
-    
-//    func test_liveLock() {
-//        var counter = 0
-//        let sut = Observer<Int> { state in
-//            counter = state
-//            return .active
-//        }
-//        
-//        for i in 0...50 {
-//            sut.queue.async {
-//                _ = sut.observe?(i)
-//            }
-//        }
-//        
-//        XCTAssertEqual(counter, 50)
-//    }
 
 }
 

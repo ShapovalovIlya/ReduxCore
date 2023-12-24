@@ -1,6 +1,6 @@
 //
 //  Store.swift
-//  MovieMagazine
+//
 //
 //  Created by Илья Шаповалов on 28.10.2023.
 //
@@ -17,10 +17,11 @@ public final class Store<State, Action> {
     public let queue: DispatchQueue = .init(label: "Store queue")
     public var graph: GraphStore { .init(state: state, dispatch: dispatch) }
     
-    //MARK: - Private properties
-    private var observers: Set<GraphObserver> = .init()
-    private(set) var state: State
-    private let reducer: Reducer
+    @usableFromInline private(set) var observers: Set<GraphObserver> = .init()
+    @usableFromInline private(set) var state: State
+    @usableFromInline let reducer: Reducer
+    
+    private let lock = NSRecursiveLock()
     
     //MARK: - init(_:)
     public init(
@@ -32,13 +33,11 @@ public final class Store<State, Action> {
     }
     
     //MARK: - Public methods
-    public func dispatch(_ action: Action) {
-        queue.sync {
-            reducer(&state, action)
-            observers.forEach(notify)
-        }
+    public subscript<T>(dynamicMember keyPath: KeyPath<GraphStore, T>) -> T {
+        lock.withLock { graph[keyPath: keyPath] }
     }
     
+    @inlinable
     public func subscribe(_ observer: GraphObserver) {
         queue.sync {
             observers.insert(observer)
@@ -46,6 +45,7 @@ public final class Store<State, Action> {
         }
     }
     
+    @inlinable
     public func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
         queue.sync {
@@ -54,19 +54,24 @@ public final class Store<State, Action> {
         }
     }
     
-    public subscript<T>(dynamicMember keyPath: KeyPath<GraphStore, T>) -> T {
-        graph[keyPath: keyPath]
+    //MARK: - Internal methods
+    @inlinable
+    @inline(__always)
+    func dispatch(_ action: Action) {
+        queue.sync {
+            reducer(&state, action)
+            observers.forEach(notify)
+        }
     }
     
-}
-
-private extension Store {
+    @inlinable
+    @inline(__always)
     func notify(_ observer: GraphObserver) {
         observer.queue.async { [graph] in
             let status = observer.observe?(graph)
             
             guard case .dead = status else { return }
-            self.queue.async {
+            _ = self.queue.sync {
                 self.observers.remove(observer)
             }
         }

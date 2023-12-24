@@ -9,10 +9,12 @@ import Foundation
 
 public final class Observer<State> {
     //MARK: - Private properties
+    var recurcive = NSRecursiveLock()
     @usableFromInline let lock = NSLock()
     @usableFromInline var state: State?
     
     //MARK: - Internal properties
+    @usableFromInline 
     private(set) var observe: ((State) -> Status)?
     
     //MARK: - Public properties
@@ -23,6 +25,7 @@ public final class Observer<State> {
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
+    @inlinable
     public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
@@ -35,6 +38,7 @@ public final class Observer<State> {
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
+    @inlinable
     public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
@@ -52,6 +56,7 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observe:  Closure which called when `Observer` emit new `State`
+    @inlinable
     public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         scope: @escaping (State) -> Scope,
@@ -70,16 +75,17 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observeScope:  Closure which called when `Observer` emit new `ScopedState`
-    public init<Scope>(
+    @inlinable
+    public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
-        scope: @escaping (State) -> Scope,
-        observeScope: @escaping (Scope) -> Status
-    ) where Scope: Equatable {
+        scope: @escaping (State) -> State,
+        observeScope: @escaping (State) -> Status
+    ) where State: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
             guard let self else { return .dead }
             let scoped = scope(newState)
-            return process(newState) { _ in self.state.map(scope) == scoped } ?? observeScope(scoped)
+            return process(scoped) { self.state == $0 } ?? observeScope(scoped)
         }
     }
     
