@@ -9,7 +9,6 @@ import Foundation
 
 public final class Observer<State> {
     //MARK: - Private properties
-    var recurcive = NSRecursiveLock()
     @usableFromInline let lock = NSLock()
     @usableFromInline var state: State?
     
@@ -76,16 +75,16 @@ public final class Observer<State> {
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observeScope:  Closure which called when `Observer` emit new `ScopedState`
     @inlinable
-    public init(
+    public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
-        scope: @escaping (State) -> State,
-        observeScope: @escaping (State) -> Status
-    ) where State: Equatable {
+        scope: @escaping (State) -> Scope,
+        observeScope: @escaping (Scope) -> Status
+    ) where Scope: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
             guard let self else { return .dead }
             let scoped = scope(newState)
-            return process(scoped) { self.state == $0 } ?? observeScope(scoped)
+            return process(newState) { self.state.map(scope) == scope($0) } ?? observeScope(scoped)
         }
     }
     
