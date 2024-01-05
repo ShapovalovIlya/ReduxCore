@@ -44,8 +44,8 @@ public final class Observer<State> {
     ) where State: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
-            guard let self else { return .dead }
-            return process(newState) { self.state == $0 } ?? observe(newState)
+            guard let self = self else { return .dead }
+            return self.process(newState) { self.state == $0 } ?? observe(newState)
         }
     }
     
@@ -63,8 +63,8 @@ public final class Observer<State> {
     ) where Scope: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
-            guard let self else { return .dead }
-            return process(newState) { self.state.map(scope) == scope($0) } ?? observe(newState)
+            guard let self = self else { return .dead }
+            return self.process(newState) { self.state.map(scope) == scope($0) } ?? observe(newState)
         }
     }
     
@@ -82,9 +82,9 @@ public final class Observer<State> {
     ) where Scope: Equatable {
         self.queue = queue
         self.observe = { [weak self] newState in
-            guard let self else { return .dead }
+            guard let self = self else { return .dead }
             let scoped = scope(newState)
-            return process(newState) { self.state.map(scope) == scope($0) } ?? observeScope(scoped)
+            return self.process(newState) { self.state.map(scope) == scope($0) } ?? observeScope(scoped)
         }
     }
     
