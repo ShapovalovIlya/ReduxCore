@@ -56,7 +56,6 @@ public final class Store<State, Action> {
     
     //MARK: - Internal methods
     @inlinable
-    @inline(__always)
     func dispatch(_ action: Action) {
         queue.sync {
             reducer(&state, action)

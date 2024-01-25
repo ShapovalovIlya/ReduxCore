@@ -9,11 +9,13 @@ import Foundation
 
 public extension Store {
     @resultBuilder
-    struct SubscribersBuilder {
+    enum SubscribersBuilder {
+        @inlinable
         public static func buildBlock(_ components: GraphObserver...) -> [GraphObserver] {
             components
         }
         
+        @inlinable
         public static func buildArray(_ components: [[GraphObserver]]) -> [GraphObserver] {
             components.flatMap { $0 }
         }
