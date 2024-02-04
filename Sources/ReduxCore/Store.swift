@@ -54,7 +54,6 @@ public final class Store<State, Action> {
         }
     }
     
-    //MARK: - Internal methods
     @inlinable
     func dispatch(_ action: Action) {
         queue.sync {
@@ -64,7 +63,6 @@ public final class Store<State, Action> {
     }
     
     @inlinable
-    @inline(__always)
     func notify(_ observer: GraphObserver) {
         observer.queue.async { [graph] in
             let status = observer.observe?(graph)
