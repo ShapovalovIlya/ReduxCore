@@ -134,7 +134,7 @@ final class ObserverTests: XCTestCase {
         
         XCTAssertEqual(counter, 50)
     }
-
+    
 }
 
 private struct NestedState: Equatable {
