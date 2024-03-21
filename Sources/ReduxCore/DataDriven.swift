@@ -8,7 +8,13 @@
 import Foundation
 
 /// Protocol describe any action type
-public protocol Action {}
+public protocol Action {
+    var actionId: UUID? { get }
+}
+
+public extension Action {
+    var actionId: UUID? { nil }
+}
 
 /// Protocol describe any state type.
 public protocol DataDriven {
