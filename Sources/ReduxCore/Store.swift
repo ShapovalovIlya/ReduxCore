@@ -12,14 +12,16 @@ public final class Store<State, Action> {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
     public typealias GraphObserver = Observer<GraphStore>
+    public typealias GraphConsumer = Consumer<GraphStore>
     public typealias Reducer = (inout State, Action) -> Void
     
     public let queue: DispatchQueue = .init(label: "Store queue")
     public var graph: GraphStore { .init(state: state, dispatch: dispatch) }
     
-    @usableFromInline private(set) var observers: Set<GraphObserver> = .init()
-    @usableFromInline private(set) var state: State
-    @usableFromInline let reducer: Reducer
+    private(set) var observers: Set<GraphObserver> = .init()
+    private(set) var consumers: Set<GraphConsumer> = .init()
+    private(set) var state: State
+    let reducer: Reducer
     
     private let lock = NSRecursiveLock()
     
@@ -37,7 +39,6 @@ public final class Store<State, Action> {
         lock.withLock { graph[keyPath: keyPath] }
     }
     
-    @inlinable
     public func subscribe(_ observer: GraphObserver) {
         queue.sync {
             observers.insert(observer)
@@ -45,7 +46,13 @@ public final class Store<State, Action> {
         }
     }
     
-    @inlinable
+    public func subscribe(_ consumer: GraphConsumer) {
+        queue.sync {
+            consumers.insert(consumer)
+            yield(consumer)
+        }
+    }
+    
     public func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
         queue.sync {
@@ -54,15 +61,19 @@ public final class Store<State, Action> {
         }
     }
     
-    @inlinable
+    //MARK: - Internal methods
     func dispatch(_ action: Action) {
         queue.sync {
             reducer(&state, action)
             observers.forEach(notify)
+            consumers.forEach(yield)
         }
     }
     
-    @inlinable
+}
+
+//MARK: - Private methods
+private extension Store {
     func notify(_ observer: GraphObserver) {
         observer.queue.async { [graph] in
             let status = observer.observe?(graph)
@@ -73,4 +84,13 @@ public final class Store<State, Action> {
             }
         }
     }
+    
+    func yield(_ consumer: GraphConsumer) {
+        if case .dead = consumer.status {
+            consumers.remove(consumer)
+            return
+        }
+        consumer.continuation?.yield(graph)
+    }
+    
 }
