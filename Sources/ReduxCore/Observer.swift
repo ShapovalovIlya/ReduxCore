@@ -24,7 +24,6 @@ public final class Observer<State> {
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
-    @inlinable
     public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
@@ -37,7 +36,6 @@ public final class Observer<State> {
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
-    @inlinable
     public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
@@ -55,7 +53,6 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observe:  Closure which called when `Observer` emit new `State`
-    @inlinable
     public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         scope: @escaping (State) -> Scope,
@@ -74,7 +71,6 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observeScope:  Closure which called when `Observer` emit new `ScopedState`
-    @inlinable
     public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         scope: @escaping (State) -> Scope,
