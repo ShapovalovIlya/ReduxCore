@@ -12,14 +12,14 @@ public final class Store<State, Action> {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
     public typealias GraphObserver = Observer<GraphStore>
-    public typealias GraphConsumer = Consumer<GraphStore>
+    public typealias GraphStreamer = StateStreamer<GraphStore>
     public typealias Reducer = (inout State, Action) -> Void
     
     public let queue: DispatchQueue = .init(label: "Store queue")
     public var graph: GraphStore { .init(state: state, dispatch: dispatch) }
     
     private(set) var observers: Set<GraphObserver> = .init()
-    private(set) var consumers: Set<GraphConsumer> = .init()
+    private(set) var streamers: Set<GraphStreamer> = .init()
     private(set) var state: State
     let reducer: Reducer
     
@@ -46,10 +46,10 @@ public final class Store<State, Action> {
         }
     }
     
-    public func subscribe(_ consumer: GraphConsumer) {
+    public func subscribe(_ streamer: GraphStreamer) {
         queue.sync {
-            consumers.insert(consumer)
-            yield(consumer)
+            streamers.insert(streamer)
+            yield(streamer)
         }
     }
     
@@ -66,7 +66,7 @@ public final class Store<State, Action> {
         queue.sync {
             reducer(&state, action)
             observers.forEach(notify)
-            consumers.forEach(yield)
+            streamers.forEach(yield)
         }
     }
     
@@ -85,12 +85,13 @@ private extension Store {
         }
     }
     
-    func yield(_ consumer: GraphConsumer) {
-        if case .dead = consumer.status {
-            consumers.remove(consumer)
+    func yield(_ streamer: GraphStreamer) {
+        if streamer.isActive {
+            streamer.continuation.yield(graph)
             return
         }
-        consumer.continuation?.yield(graph)
+//        streamer.continuation.finish()
+        streamers.remove(streamer)
     }
     
 }
