@@ -19,18 +19,18 @@ public final class StoreThread: Thread {
     
     //MARK: - init(_:)
     public init(
-        _ settings: Settings,
+        _ settings: Settings = .default,
         queue: [Work] = .init()
     ) {
         self.queue = queue
         super.init()
         
-        stackSize = settings.stackSize
+//        stackSize = settings.stackSize
         
     }
     
     public convenience init(
-        _ settings: Settings,
+        _ settings: Settings = .default,
         @QueueBuilder build: @escaping () -> [Work]
     ) {
         self.init(settings, queue: build())
@@ -70,7 +70,7 @@ public final class StoreThread: Thread {
     ///
     /// Blocks invoke in FIFO.
     public func enqueue(_ work: @escaping Work) {
-        condition.withLock {
+        condition.protect {
             queue.append(work)
         }
     }
@@ -82,7 +82,7 @@ public final class StoreThread: Thread {
      - SeeAlso: `.pause()`
      */
     public override func start() {
-        condition.withLock(super.start)
+        condition.protect(super.start)
     }
     
     /**
@@ -92,7 +92,7 @@ public final class StoreThread: Thread {
      - SeeAlso: `.pause()`
      */
     public override func cancel() {
-        condition.withLock(super.cancel)
+        condition.protect(super.cancel)
     }
     
     /**
@@ -102,7 +102,7 @@ public final class StoreThread: Thread {
      - SeeAlso: `.cancel()`
      */
     public func pause() {
-        condition.withLock { isPaused = true }
+        condition.protect { isPaused = true }
     }
     
     /**
@@ -112,7 +112,7 @@ public final class StoreThread: Thread {
      - SeeAlso: `.cancel()`
      */
     public func resume() {
-        condition.withLock { isPaused = false }
+        condition.protect { isPaused = false }
     }
     
     /**
@@ -122,7 +122,7 @@ public final class StoreThread: Thread {
      - `.cancel()`
      */
     public func emptyQueue() {
-        condition.withLock {
+        condition.protect {
             queue.removeAll(keepingCapacity: true)
         }
     }
@@ -131,5 +131,7 @@ public final class StoreThread: Thread {
 public extension StoreThread {
     struct Settings {
         public let stackSize: Int
+        
+        public static let `default` = Self(stackSize: 0)
     }
 }
