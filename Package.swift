@@ -13,8 +13,13 @@ let package = Package(
         .library(name: "ReduxCore", targets: ["ReduxCore"]),
     ],
     targets: [
-        .target(name: "ReduxCore"),
         .target(name: "StoreThread"),
+        .target(
+            name: "ReduxCore",
+            dependencies: [
+                "StoreThread"
+            ]
+        ),
         .testTarget(name: "ReduxCoreTests", dependencies: ["ReduxCore"]),
     ]
 )

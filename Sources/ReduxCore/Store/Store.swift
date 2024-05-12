@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import StoreThread
 
 @dynamicMemberLookup
 public final class Store<State, Action> {
