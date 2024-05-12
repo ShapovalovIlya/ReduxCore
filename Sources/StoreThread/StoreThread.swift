@@ -121,7 +121,7 @@ public final class StoreThread: Thread {
      - `.enqueue(_ work: Work)`
      - `.cancel()`
      */
-    final func emptyQueue() {
+    public func emptyQueue() {
         condition.withLock {
             queue.removeAll(keepingCapacity: true)
         }
