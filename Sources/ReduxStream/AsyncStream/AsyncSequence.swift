@@ -8,9 +8,7 @@
 import Foundation
 
 /// Namespace for custom async sequences
-public enum ReduxStream {
-    
-}
+public enum ReduxStream { }
 
 public extension AsyncSequence where Element: Equatable {
     /// Creates an asynchronous sequence that omits repeated elements.
@@ -33,4 +31,27 @@ public extension AsyncSequence {
     ) -> ReduxStream.ThrowingRemoveDuplicates<Self> {
         ReduxStream.ThrowingRemoveDuplicates(self, predicate: predicate)
     }
+    
+    /// Calls the given closure on each element in the async sequence in the same order as a `for-in` loop.
+    /// - Parameter body: A closure that takes an element of the sequence as a parameter.
+    @inlinable
+    func forEach(
+        _ body: @escaping (Element) throws -> Void
+    ) async rethrows {
+        for try await element in self {
+            try body(element)
+        }
+    }
+    
+    /// Calls the given asynchronous closure on each element in the async sequence in the same order as a `for-in` loop.
+    /// - Parameter body: A asynchronous closure that takes an element of the sequence as a parameter.
+    @inlinable
+    func forEach(
+        _ body: @escaping (Element) async throws -> Void
+    ) async rethrows {
+        for try await element in self {
+            try await body(element)
+        }
+    }
+
 }

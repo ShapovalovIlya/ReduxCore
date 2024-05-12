@@ -8,17 +8,19 @@
 import Foundation
 
 public final class StateStreamer<State> {
-    private(set) var isActive = true
-    
+    //MARK: - Public properties
     public let (state, continuation) = AsyncStream.makeStream(of: State.self)
-    
-    public func invalidate() {
-        isActive = false
-    }
-    
+    public private(set) var isActive = true
+        
+    //MARK: - init(_:)
     public init() {}
     deinit {
         continuation.finish()
+    }
+    
+    //MARK: - Public methods
+    public func invalidate() {
+        isActive = false
     }
 }
 

@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import ReduxStream
 @testable import ReduxCore
 
 final class StoreTests: XCTestCase {
@@ -54,7 +55,7 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(sut.observers.contains(observer2))
     }
     
-    func test_subscrieBuilder() {
+    func test_subscrieBuilder_Observer() {
         let sut = makeSUT()
         let observer0 = Observer<TestStore>(observe: { _ in .active })
         let observer1 = Observer<TestStore>(observe: { _ in .active })
@@ -86,62 +87,50 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(sut.streamers.contains(three))
     }
     
-    func test_store_NotifyStreamer_initialState() {
+    func test_subscribeBuilder_Streamer() {
         let sut = makeSUT()
-        let streamer = StateStreamer<TestStore>()
-        let exp = XCTestExpectation()
+        let one = StateStreamer<TestStore>()
+        let two = StateStreamer<TestStore>()
+        let three = StateStreamer<TestStore>()
         
-        sut.subscribe(streamer)
-        stubStream(streamer) { value in
-            exp.fulfill()
-            XCTAssertEqual(value.state, 0)
+        sut.subscribe {
+            one
+            two
+            three
         }
         
-        wait(for: [exp], timeout: 0.1)
+        XCTAssertTrue(sut.streamers.contains(one))
+        XCTAssertTrue(sut.streamers.contains(two))
+        XCTAssertTrue(sut.streamers.contains(three))
+
     }
     
-    // Фейлится при запуске всех тестов разом.
-    func test_store_notifyStreamer_multipleValues() {
+    func test_store_notifyStreamer() async throws {
         let sut = makeSUT()
         let streamer = StateStreamer<TestStore>()
-        let exp = XCTestExpectation(description: #function)
         let arr = NSMutableArray()
         
         sut.subscribe(streamer)
         
-        stubStream(streamer) { val in
-            arr.add(val)
-        } onCancel: {
-            exp.fulfill()
+        let task = Task {
+            for await value in streamer.state {
+                arr.add(value.state)
+            }
         }
         
         sut.dispatch(1)
         sut.dispatch(1)
-        streamer.invalidate()
         sut.dispatch(1)
+        streamer.continuation.finish()
 
-        XCTAssertEqual(arr.count, 3)
-        wait(for: [exp], timeout: 1)
+        await task.value
+        XCTAssertEqual(arr, [0,1,2,3])
     }
     
 }
 
 private extension StoreTests {
-    func stubStream<Int>(
-        _ streamer: StateStreamer<Int>,
-        onNext: @escaping (Int) -> Void,
-        onCancel: (() -> Void)? = nil
-    ) {
-        Task {
-            for await value in streamer.state {
-                onNext(value)
-            }
-        }
-        streamer.continuation.onTermination = { _ in
-            onCancel?()
-        }
-    }
-    
+        
     func makeSUT() -> Store<Int, Int> {
         Store(initial: 0) { (state: inout Int, action: Int) in
             state += action
