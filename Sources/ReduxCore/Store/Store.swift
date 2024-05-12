@@ -90,7 +90,6 @@ private extension Store {
             streamer.continuation.yield(graph)
             return
         }
-//        streamer.continuation.finish()
         streamers.remove(streamer)
     }
     
