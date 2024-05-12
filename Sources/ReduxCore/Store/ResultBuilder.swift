@@ -21,4 +21,17 @@ public extension Store {
         }
         
     }
+    
+    @resultBuilder
+    enum StreamerBuilder {
+        @inlinable
+        public static func buildBlock(_ components: GraphStreamer...) -> [GraphStreamer] {
+            components
+        }
+        
+        @inlinable
+        public static func buildArray(_ components: [[GraphStreamer]]) -> [GraphStreamer] {
+            components.flatMap { $0 }
+        }
+    }
 }

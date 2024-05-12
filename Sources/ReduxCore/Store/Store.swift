@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ReduxStream
 
 @dynamicMemberLookup
 public final class Store<State, Action> {
@@ -58,6 +59,14 @@ public final class Store<State, Action> {
         queue.sync {
             self.observers.formUnion(observers)
             observers.forEach(notify)
+        }
+    }
+    
+    public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
+        let streamers = builder()
+        queue.sync {
+            self.streamers.formUnion(streamers)
+            streamers.forEach(yield)
         }
     }
     
