@@ -14,6 +14,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "ReduxCore"),
+        .target(name: "StoreThread"),
         .testTarget(name: "ReduxCoreTests", dependencies: ["ReduxCore"]),
     ]
 )
