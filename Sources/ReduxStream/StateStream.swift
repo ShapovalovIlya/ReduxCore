@@ -9,7 +9,7 @@ import Foundation
 
 public final class StateStreamer<State> {
     //MARK: - Public properties
-    public let (state, continuation) = AsyncStream.makeStream(of: State.self)
+    public let (state, continuation) = AsyncStream.newStream(of: State.self)
     public private(set) var isActive = true
         
     //MARK: - init(_:)
