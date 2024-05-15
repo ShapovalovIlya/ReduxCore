@@ -50,28 +50,38 @@ public extension NotificationCenter {
             print(#function)
         }
         
+        //MARK: - internal methods
+        @usableFromInline
+        var notificationSequence: AsyncStream<Notification> {
+            AsyncStream { continuation in
+                let monitor = center.addObserver(forName: name, object: object, queue: .current) { notification in
+                    continuation.yield(notification)
+                }
+                continuation.onTermination = { @Sendable _ in
+                    self.center.removeObserver(monitor)
+                }
+            }
+        }
+        
         //MARK: - Public methods
         @inlinable
         public func makeAsyncIterator() -> Iterator {
-            Iterator(stream: self)
+            Iterator(notificationSequence.makeAsyncIterator())
         }
-        
     }
+    
 }
 
 public extension NotificationCenter.Stream {
     //MARK: - Iterator
     struct Iterator: AsyncIteratorProtocol {
         public typealias Element = Notification
-        @usableFromInline let center: NotificationCenter
-        @usableFromInline let name: Notification.Name
-        @usableFromInline let object: AnyObject?
+
+        @usableFromInline var iterator: AsyncStream<Notification>.Iterator
         
         @usableFromInline
-        init(stream: NotificationCenter.Stream) {
-            self.center = stream.center
-            self.name = stream.name
-            self.object = stream.object
+        init(_ iterator: AsyncStream<Notification>.Iterator) {
+            self.iterator = iterator
         }
         
         /// Asynchronously advances to the next element and returns it, or ends the
@@ -80,11 +90,10 @@ public extension NotificationCenter.Stream {
         /// - Returns: The next element, if it exists, or `nil` to signal the end of
         ///   the sequence.
         public mutating func next() async -> Element? {
-            await withCheckedContinuation { continuation in
-                center.addObserver(forName: name, object: object, queue: .current) { notification in
-                    continuation.resume(returning: notification)
-                }
+            while let element = await iterator.next() {
+                return element
             }
+            return nil
         }
     }
 }
