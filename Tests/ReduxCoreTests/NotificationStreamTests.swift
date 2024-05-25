@@ -32,7 +32,6 @@ final class NotificationStreamTests: XCTestCase {
             for await name in sut.map(\.name) {
                 arr.add(name)
             }
-            
         }
         
         notifications.post(name: notify, object: nil)
