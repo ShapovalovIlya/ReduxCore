@@ -9,10 +9,24 @@ import XCTest
 @testable import ReduxStream
 
 final class ReduxStreamTests: XCTestCase {
-    func test_streamerStream() async {
-        let sut = StateStreamer<Int>()
-        let arr = NSMutableArray()
+    private var sut: StateStreamer<Int>!
+    private var arr: NSMutableArray!
+    
+    override func setUp() async throws {
+        try await super.setUp()
         
+        sut = StateStreamer<Int>()
+        arr = NSMutableArray()
+    }
+    
+    override func tearDown() async throws {
+        try await super.tearDown()
+        
+        sut = nil
+        arr = nil
+    }
+    
+    func test_streamerStream() async {
         let task = Task {
             for await val in sut.state {
                 arr.add(val)
@@ -29,9 +43,6 @@ final class ReduxStreamTests: XCTestCase {
     }
     
     func test_streamerRemoveDuplicates() async {
-        let sut = StateStreamer<Int>()
-        let arr = NSMutableArray()
-        
         let task = Task {
             for await val in sut.state.removeDuplicates() {
                 arr.add(val)
@@ -48,9 +59,6 @@ final class ReduxStreamTests: XCTestCase {
     }
     
     func test_streamerForEach() async {
-        let sut = StateStreamer<Int>()
-        let arr = NSMutableArray()
-        
         let task = Task {
             await sut.state
                 .forEach(arr.add(_:))
