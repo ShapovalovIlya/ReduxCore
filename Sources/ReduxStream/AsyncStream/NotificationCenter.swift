@@ -8,6 +8,13 @@
 import Foundation
 
 public extension NotificationCenter {
+    
+    /// Returns an asynchronous sequence of notifications produced by this center for a given notification name and optional source object.
+    /// - Parameters:
+    ///   - name: A notification name. The sequence includes only notifications with this name.
+    ///   - object: A source object of notifications. Specify a sender object to deliver only notifications from that sender.
+    ///   When nil, the notification center doesn’t consider the sender as a criteria for delivery.
+    /// - Returns: An asynchronous sequence of notifications from the center.
     func stream(
         of name: Notification.Name,
         object: AnyObject? = nil
@@ -43,11 +50,6 @@ public extension NotificationCenter {
             self.center = center
             self.name = name
             self.object = object
-            print(#function)
-        }
-        
-        deinit {
-            print(#function)
         }
         
         //MARK: - internal methods
