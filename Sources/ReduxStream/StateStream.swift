@@ -15,10 +15,12 @@ public final class StateStreamer<State> {
     //MARK: - init(_:)
     public init() {}
     
+    //MARK: - deinit
+    deinit { continuation.finish() }
+    
     //MARK: - Public methods
     public func invalidate() {
         isActive = false
-        continuation.finish()
     }
 }
 
