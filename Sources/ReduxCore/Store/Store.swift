@@ -50,6 +50,7 @@ public final class Store<State, Action> {
     
     public func subscribe(_ streamer: GraphStreamer) {
         queue.sync {
+            streamer.activate()
             streamers.insert(streamer)
             yield(streamer)
         }
