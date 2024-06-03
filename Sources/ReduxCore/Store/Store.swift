@@ -66,6 +66,7 @@ public final class Store<State, Action> {
     
     public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         let streamers = builder()
+        streamers.forEach { $0.activate() }
         queue.sync {
             self.streamers.formUnion(streamers)
             streamers.forEach(yield)
