@@ -36,7 +36,7 @@ public extension AsyncSequence {
     /// - Parameter body: A closure that takes an element of the sequence as a parameter.
     @inlinable
     func forEach(
-        _ body: @escaping (Element) throws -> Void
+        _ body: @escaping @Sendable (Element) throws -> Void
     ) async rethrows {
         for try await element in self {
             try body(element)
@@ -47,7 +47,7 @@ public extension AsyncSequence {
     /// - Parameter body: A asynchronous closure that takes an element of the sequence as a parameter.
     @inlinable
     func forEach(
-        _ body: @escaping (Element) async throws -> Void
+        _ body: @escaping @Sendable (Element) async throws -> Void
     ) async rethrows {
         for try await element in self {
             try await body(element)
