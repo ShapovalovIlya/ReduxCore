@@ -53,5 +53,41 @@ public extension AsyncSequence {
             try await body(element)
         }
     }
+    
+    /// Run Iteration over given `AsyncSequence` as part of a new top-level task on behalf of the current actor and
+    /// calls the closure on each element in the `async sequence` in the same order as a `for-in` loop.
+    /// - Parameters:
+    ///   - priority: The priority of the task. Pass nil to use the priority from Task.currentPriority.
+    ///   - body: A closure that takes an element of the sequence as a parameter.
+    @inlinable
+    @discardableResult
+    func forEachTask(
+        priority: TaskPriority? = nil,
+        _ body: @escaping (Element) throws -> Void
+    ) -> Task<Void, Error> {
+        Task(priority: priority) {
+            for try await element in self {
+                try body(element)
+            }
+        }
+    }
+    
+    /// Run Iteration over given `AsyncSequence` as part of a new top-level task on behalf of the current actor and
+    /// calls the asynchronous closure on each element in the `async sequence` in the same order as a `for-in` loop.
+    /// - Parameters:
+    ///   - priority: The priority of the task. Pass nil to use the priority from Task.currentPriority.
+    ///   - body: A asynchronous closure that takes an element of the sequence as a parameter.
+    @inlinable
+    @discardableResult
+    func forEachTask(
+        priority: TaskPriority? = nil,
+        _ body: @escaping (Element) async throws -> Void
+    ) -> Task<Void, Error> {
+        Task(priority: priority) {
+            for try await element in self {
+                try await body(element)
+            }
+        }
+    }
 
 }

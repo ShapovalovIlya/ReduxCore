@@ -72,6 +72,34 @@ final class ReduxStreamTests: XCTestCase {
         await task.value
         XCTAssertEqual(arr, [1,1,1])
     }
+    
+    func test_forEachTask() async throws {
+        let task = sut.state.forEachTask(arr.add)
+        
+        sut.continuation.yield(1)
+        sut.continuation.yield(1)
+        sut.continuation.yield(1)
+        sut.continuation.finish()
+
+        try await task.value
+        XCTAssertEqual(arr, [1,1,1])
+    }
+    
+    func test_forEachTaskAsync() async {
+        let task = sut.state.forEachTask(asyncAdd)
+        
+        sut.continuation.yield(1)
+        sut.continuation.yield(1)
+        sut.continuation.yield(1)
+        sut.continuation.finish()
+
+        try? await task.value
+        XCTAssertEqual(arr, [1,1,1])
+    }
+    
+    private func asyncAdd(_ val: Int) async {
+        arr.add(val)
+    }
 }
 
 extension NSMutableArray: @unchecked Sendable {}
