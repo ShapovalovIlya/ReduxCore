@@ -55,6 +55,8 @@ public extension ReduxStream.RemoveDuplicates {
         //MARK: - Public methods
         @inlinable
         public mutating func next() async rethrows -> Element? {
+            if Task.isCancelled { return nil }
+            
             guard let last else {
                 last = try await iterator.next()
                 return last

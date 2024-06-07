@@ -92,6 +92,8 @@ public extension NotificationCenter.Stream {
         /// - Returns: The next element, if it exists, or `nil` to signal the end of
         ///   the sequence.
         public mutating func next() async -> Element? {
+            if Task.isCancelled { return nil }
+            
             while let element = await iterator.next() {
                 return element
             }
