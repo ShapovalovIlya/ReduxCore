@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct Graph<State, Action> {
+public struct Graph<State, Action>: @unchecked Sendable {
     public let state: State
     public let dispatch: (Action) -> Void
     

@@ -10,7 +10,7 @@ import ReduxStream
 import StoreThread
 
 @dynamicMemberLookup
-public final class Store<State, Action> {
+public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
     public typealias GraphObserver = Observer<GraphStore>
