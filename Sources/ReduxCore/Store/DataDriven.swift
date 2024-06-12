@@ -8,7 +8,7 @@
 import Foundation
 
 /// Protocol describe any action type
-public protocol Action {
+public protocol Action: Sendable {
     var actionId: UUID? { get }
 }
 
