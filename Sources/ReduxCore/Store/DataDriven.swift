@@ -8,15 +8,15 @@
 import Foundation
 
 /// Protocol describe any action type
-public protocol Action: Sendable {
-    var actionId: UUID? { get }
-}
+public protocol Action: Sendable, Hashable {}
 
 public extension Action {
-    var actionId: UUID? { nil }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(String(reflecting: self))
+    }
 }
 
 /// Protocol describe any state type.
 public protocol DataDriven {
-    mutating func reduce(_ action: Action)
+    mutating func reduce(_ action: some Action)
 }
