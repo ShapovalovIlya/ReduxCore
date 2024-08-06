@@ -19,6 +19,5 @@ public extension Action {
 /// Protocol describe any state type.
 public protocol DataDriven {
     
-    @inlinable
     mutating func reduce<A: Action>(_ action: A)
 }
