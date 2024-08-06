@@ -18,7 +18,7 @@ public extension Action {
 
 /// Protocol describe any state type.
 public protocol DataDriven {
-    associatedtype Event = Action
     
-    mutating func reduce(_ action: Self.Event)
+    @inlinable
+    mutating func reduce<A: Action>(_ action: A)
 }
