@@ -102,4 +102,4 @@ final class ReduxStreamTests: XCTestCase {
     }
 }
 
-extension NSMutableArray: @unchecked Sendable {}
+extension NSMutableArray: @unchecked @retroactive Sendable {}
