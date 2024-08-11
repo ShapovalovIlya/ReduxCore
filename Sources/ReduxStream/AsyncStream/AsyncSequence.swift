@@ -32,6 +32,14 @@ public extension AsyncSequence {
         ReduxStream.ThrowingRemoveDuplicates(self, predicate: predicate)
     }
     
+    /// An asynchronous sequence that combine repeated elements with weakly retained Object.
+    /// - Parameter object: the object that will be passed downstream by weak reference.
+    func withUnretained<Unretained: AnyObject>(
+        _ object: Unretained
+    ) -> ReduxStream.WithUnretained<Self, Unretained> {
+        ReduxStream.WithUnretained(base: self, unretained: object)
+    }
+    
     /// Calls the given closure on each element in the async sequence in the same order as a `for-in` loop.
     /// - Parameter body: A closure that takes an element of the sequence as a parameter.
     @inlinable

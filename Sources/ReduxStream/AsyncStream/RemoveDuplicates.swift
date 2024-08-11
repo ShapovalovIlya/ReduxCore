@@ -62,10 +62,9 @@ public extension ReduxStream.RemoveDuplicates {
                 return last
             }
             while let element = try await iterator.next() {
-                if await !predicate(last, element) {
-                    self.last = element
-                    return element
-                }
+                if await predicate(last, element) { continue }
+                self.last = element
+                return element
             }
             return nil
         }
