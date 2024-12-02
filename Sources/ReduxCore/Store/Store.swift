@@ -38,7 +38,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     //MARK: - Public methods
     public subscript<T>(dynamicMember keyPath: KeyPath<GraphStore, T>) -> T {
-        lock.withLock { graph[keyPath: keyPath] }
+        graph[keyPath: keyPath]
     }
     
     public func subscribe(_ observer: GraphObserver) {
