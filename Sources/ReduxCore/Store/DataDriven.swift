@@ -40,7 +40,7 @@ public extension Action {
 /// Protocol describe any state type.
 public protocol DataDriven {
     
-    mutating func reduce<A: Action>(_ action: A)
+    mutating func reduce(_ action: some Action)
     
     /// Dumps `DataDriven` underlaying type contents.
     ///

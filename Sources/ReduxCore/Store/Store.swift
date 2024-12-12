@@ -25,8 +25,6 @@ public final class Store<State, Action>: @unchecked Sendable {
     private(set) var state: State
     let reducer: Reducer
     
-    private let lock = NSRecursiveLock()
-    
     //MARK: - init(_:)
     public init(
         initial state: State,

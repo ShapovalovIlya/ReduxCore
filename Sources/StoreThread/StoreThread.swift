@@ -157,6 +157,18 @@ public extension StoreThread {
         public let stackSize: Int?
         public let priority: Double?
         
+        init(
+            name: String,
+            qos: QualityOfService,
+            stackSize: Int?,
+            priority: Double?
+        ) {
+            self.name = name
+            self.qos = qos
+            self.stackSize = stackSize.map { max(16384, $0) }
+            self.priority = priority
+        }
+        
         /// Default settings instructions
         public static let `default` = Settings(
             name: "StoreThread",
