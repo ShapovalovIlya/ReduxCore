@@ -31,7 +31,7 @@ extension Task where Success == Never, Failure == Never {
     /// In seconds.
     static func sleep(seconds: TimeInterval) async throws {
         if seconds.isInfinite || seconds.isNaN {
-            assertionFailure()
+            assertionFailure("Argument `seconds` is infinite or NaN")
             return
         }
         if seconds.isLessThanOrEqualTo(.zero) { return }

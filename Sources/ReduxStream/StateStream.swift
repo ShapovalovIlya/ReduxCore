@@ -39,6 +39,7 @@ public final class StateStreamer<State> {
 
 //MARK: - Equatable
 extension StateStreamer: Equatable {
+    @inlinable
     public static func == (lhs: StateStreamer, rhs: StateStreamer) -> Bool {
         ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
@@ -46,6 +47,7 @@ extension StateStreamer: Equatable {
 
 //MARK: - Hashable
 extension StateStreamer: Hashable {
+    @inlinable
     public func hash(into hasher: inout Hasher) {
         ObjectIdentifier(self).hash(into: &hasher)
     }
