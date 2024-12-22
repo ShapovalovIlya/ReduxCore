@@ -7,6 +7,7 @@
 
 import Foundation
 
+@available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
 public final class Observer<State> {
     //MARK: - Private properties
     @usableFromInline let lock = NSLock()
@@ -24,6 +25,7 @@ public final class Observer<State> {
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
@@ -36,6 +38,7 @@ public final class Observer<State> {
     /// - Parameters:
     ///   - queue: Queue which used for publishing new state
     ///   - observe: Closure which called when `Observer` emit new `State`
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public init(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         observe: @escaping (State) -> Status
@@ -53,6 +56,7 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observe:  Closure which called when `Observer` emit new `State`
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         scope: @escaping (State) -> Scope,
@@ -71,6 +75,7 @@ public final class Observer<State> {
     ///   - queue: Queue which used for publishing new state
     ///   - scope:  Closure result determine source of difference between old `State` and new one.
     ///   - observeScope:  Closure which called when `Observer` emit new `ScopedState`
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public init<Scope>(
         queue: DispatchQueue = .init(label: "ObserverQueue"),
         scope: @escaping (State) -> Scope,
