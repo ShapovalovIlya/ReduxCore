@@ -12,7 +12,7 @@ public struct Graph<State, Action>: @unchecked Sendable {
     public let dispatch: (Action) -> Void
     
     init(
-        state: State,
+        _ state: State,
         dispatch: @escaping (Action) -> Void
     ) {
         self.state = state

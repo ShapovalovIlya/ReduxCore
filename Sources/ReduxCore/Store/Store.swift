@@ -18,7 +18,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     public typealias Reducer = (inout State, Action) -> Void
     
     public let queue: DispatchQueue = .init(label: "Store queue")
-    public var graph: GraphStore { .init(state: state, dispatch: dispatch) }
+    public var graph: GraphStore { GraphStore(state, dispatch: dispatch) }
     
     private(set) var observers: Set<GraphObserver> = .init()
     private(set) var streamers: Set<GraphStreamer> = .init()

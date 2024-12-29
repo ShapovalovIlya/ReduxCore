@@ -7,11 +7,14 @@
 
 import Foundation
 
-public final class StateStreamer<State> {
+public final class StateStreamer<State>: @unchecked Sendable {
+    private let lock = RWLock()
+    private var _isActive = false
+    
     //MARK: - Public properties
     public let (state, continuation) = AsyncStream.newStream(of: State.self)
-    public private(set) var isActive = false
-        
+    public var isActive: Bool { lock.read { _isActive } }
+    
     //MARK: - init(_:)
     public init() {}
     
@@ -25,7 +28,7 @@ public final class StateStreamer<State> {
     /// When a Streamer is marked as invalidated Store removes it from subscribers
     /// and no longer notifies about the new state.
     public func invalidate() {
-        isActive = false
+        lock.write { _isActive = false }
     }
     
     /// Activate Streamer.
@@ -33,7 +36,7 @@ public final class StateStreamer<State> {
     /// The Store activates the Streamer when you add it as a subscriber.
     /// It unnecessary to activate Streamer manually.
     public func activate() {
-        isActive = true
+        lock.write { _isActive = true }
     }
 }
 
