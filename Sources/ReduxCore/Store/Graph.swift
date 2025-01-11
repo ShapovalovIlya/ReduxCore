@@ -9,11 +9,11 @@ import Foundation
 
 public struct Graph<State, Action>: @unchecked Sendable {
     public let state: State
-    public let dispatch: (Action) -> Void
+    public let dispatch: @Sendable (Action) -> Void
     
     init(
         _ state: State,
-        dispatch: @escaping (Action) -> Void
+        dispatch: @escaping @Sendable (Action) -> Void
     ) {
         self.state = state
         self.dispatch = dispatch

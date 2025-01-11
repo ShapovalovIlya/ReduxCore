@@ -13,16 +13,19 @@ import StoreThread
 public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public typealias GraphObserver = Observer<GraphStore>
     public typealias GraphStreamer = StateStreamer<GraphStore>
     public typealias Reducer = (inout State, Action) -> Void
     
-    public let queue: DispatchQueue = .init(label: "Store queue")
+    public let queue = DispatchQueue(label: "Store queue", qos: .userInteractive)
     public var graph: GraphStore { GraphStore(state, dispatch: dispatch) }
     
+    //MARK: - Private properties
     private(set) var observers: Set<GraphObserver> = .init()
     private(set) var streamers: Set<GraphStreamer> = .init()
     private(set) var state: State
+    private let lock = NSRecursiveLock()
     let reducer: Reducer
     
     //MARK: - init(_:)
@@ -39,6 +42,7 @@ public final class Store<State, Action>: @unchecked Sendable {
         graph[keyPath: keyPath]
     }
     
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public func subscribe(_ observer: GraphObserver) {
         queue.sync {
             observers.insert(observer)
@@ -54,6 +58,7 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
         queue.sync {
@@ -71,7 +76,19 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    public func unsubscribe(_ streamer: GraphStreamer) {
+        queue.sync {
+            streamer.invalidate()
+            self.streamers.remove(streamer)
+        }
+    }
+    
+    public func contains(_ streamer: GraphStreamer) -> Bool {
+        lock.withLock { streamers.contains(streamer) }
+    }
+    
     //MARK: - Internal methods
+    @Sendable
     func dispatch(_ action: Action) {
         queue.sync {
             reducer(&state, action)

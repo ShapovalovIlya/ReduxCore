@@ -82,9 +82,9 @@ final class StoreTests: XCTestCase {
         sut.subscribe(two)
         sut.subscribe(three)
         
-        XCTAssertTrue(sut.streamers.contains(one))
-        XCTAssertTrue(sut.streamers.contains(two))
-        XCTAssertTrue(sut.streamers.contains(three))
+        XCTAssertTrue(sut.contains(one))
+        XCTAssertTrue(sut.contains(two))
+        XCTAssertTrue(sut.contains(three))
     }
     
     func test_subscribeBuilder_Streamer() {
@@ -99,10 +99,9 @@ final class StoreTests: XCTestCase {
             three
         }
         
-        XCTAssertTrue(sut.streamers.contains(one))
-        XCTAssertTrue(sut.streamers.contains(two))
-        XCTAssertTrue(sut.streamers.contains(three))
-
+        XCTAssertTrue(sut.contains(one))
+        XCTAssertTrue(sut.contains(two))
+        XCTAssertTrue(sut.contains(three))
     }
     
     func test_store_notifyStreamer() async throws {
