@@ -6,8 +6,26 @@
 //
 
 import XCTest
+import Testing
 import ReduxStream
 @testable import ReduxCore
+
+struct StoreTestsNew {
+    typealias Sut = Store<Int, Int>
+    
+    @Test func storeStreamerCRUD() async throws {
+        let sut = makeSUT()
+        let streamer = StateStreamer<Sut.GraphStore>()
+        
+        sut.subscribe(streamer)
+        
+        #expect(sut.contains(streamer) == true)
+        
+        sut.unsubscribe(streamer)
+        
+        #expect(sut.contains(streamer) == false)
+    }
+}
 
 final class StoreTests: XCTestCase {
     typealias TestStore = Store<Int, Int>.GraphStore
@@ -128,12 +146,11 @@ final class StoreTests: XCTestCase {
     
 }
 
-private extension StoreTests {
         
-    func makeSUT() -> Store<Int, Int> {
-        Store(initial: 0) { (state: inout Int, action: Int) in
-            state += action
-        }
+fileprivate func makeSUT() -> Store<Int, Int> {
+    Store(initial: 0) { (state: inout Int, action: Int) in
+        state += action
     }
 }
+
 

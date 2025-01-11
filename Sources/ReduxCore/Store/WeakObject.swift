@@ -6,25 +6,28 @@
 //
 
 import Foundation
+import ReduxStream
 
-struct WeakObject<T: AnyObject> {
+struct WeakObject<Obj: AnyObject> {
     let identifier: ObjectIdentifier
-    weak var obj: T?
+    weak var obj: Obj?
     
     @inlinable
     var isAlive: Bool { obj != nil }
     
     @inlinable
-    init(obj: T, identifier: ObjectIdentifier) {
+    init(obj: Obj, identifier: ObjectIdentifier) {
         self.identifier = identifier
         self.obj = obj
     }
     
     @inlinable
-    init(obj: T) {
+    init(obj: Obj) {
         self.init(obj: obj, identifier: ObjectIdentifier(obj))
     }
+    
 }
 
-extension WeakObject: Equatable where T: Equatable { }
-extension WeakObject: Hashable where T: Hashable { }
+extension WeakObject: Sendable where Obj: Sendable {}
+extension WeakObject: Equatable where Obj: Equatable {}
+extension WeakObject: Hashable where Obj: Hashable {}

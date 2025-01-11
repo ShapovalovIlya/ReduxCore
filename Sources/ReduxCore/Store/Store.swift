@@ -13,17 +13,18 @@ import StoreThread
 public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
+    public typealias Reducer = (inout State, Action) -> Void
+    
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public typealias GraphObserver = Observer<GraphStore>
     public typealias GraphStreamer = StateStreamer<GraphStore>
-    public typealias Reducer = (inout State, Action) -> Void
     
     public let queue = DispatchQueue(label: "Store queue", qos: .userInteractive)
     public var graph: GraphStore { GraphStore(state, dispatch: dispatch) }
     
     //MARK: - Private properties
-    private(set) var observers: Set<GraphObserver> = .init()
-    private(set) var streamers: Set<GraphStreamer> = .init()
+    private(set) var observers = Set<GraphObserver>()
+    private(set) var streamers = Set<GraphStreamer>()
     private(set) var state: State
     private let lock = NSRecursiveLock()
     let reducer: Reducer

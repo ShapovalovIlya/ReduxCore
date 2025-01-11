@@ -32,11 +32,17 @@ import Foundation
 @propertyWrapper
 public struct Syncronized<Wrapped>: @unchecked Sendable {
     @usableFromInline var _wrapped: Wrapped
-    @usableFromInline let lock = NSRecursiveLock()
+    @usableFromInline let lock: NSLocking
     
     //MARK: - init(_:)
     @inlinable
-    public init(wrappedValue: Wrapped) { self._wrapped = wrappedValue }
+    public init(
+        wrappedValue: Wrapped,
+        with lock: some NSLocking = NSRecursiveLock()
+    ) {
+        self._wrapped = wrappedValue
+        self.lock = lock
+    }
     
     //MARK: - Public methods
     @inlinable
@@ -70,4 +76,9 @@ extension Syncronized: Comparable where Wrapped: Comparable {
     }
 }
 
-extension Syncronized: Hashable where Wrapped: Hashable {}
+extension Syncronized: Hashable where Wrapped: Hashable {
+    @inlinable
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(_wrapped)
+    }
+}

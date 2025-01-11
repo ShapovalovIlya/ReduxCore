@@ -12,7 +12,7 @@ import ReduxStream
 struct SyncronizedTests {
     @Test(.disabled())
     func raceCondition() async throws {
-        @Syncronized var sut = 0
+        @Syncronized(with: NSLock()) var sut = 0
         
         await withTaskGroup(of: Void.self) { group in
             group.addTask(priority: .high) {

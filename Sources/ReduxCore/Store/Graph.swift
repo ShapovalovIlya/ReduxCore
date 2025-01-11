@@ -11,6 +11,7 @@ public struct Graph<State, Action>: @unchecked Sendable {
     public let state: State
     public let dispatch: @Sendable (Action) -> Void
     
+    @Sendable
     init(
         _ state: State,
         dispatch: @escaping @Sendable (Action) -> Void
@@ -19,6 +20,7 @@ public struct Graph<State, Action>: @unchecked Sendable {
         self.dispatch = dispatch
     }
     
+    @Sendable
     public func dispatch(_ actions: Action...) {
         actions.forEach(dispatch)
     }

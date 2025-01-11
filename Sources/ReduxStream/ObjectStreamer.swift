@@ -9,6 +9,7 @@ import Foundation
 
 public protocol ObjectStreamer: AnyObject {
     associatedtype State
+
     var streamerID: ObjectIdentifier { get }
     var continuation: AsyncStream<State>.Continuation { get }
 }
