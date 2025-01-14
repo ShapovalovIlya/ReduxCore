@@ -7,13 +7,35 @@
 
 import Foundation
 
-public protocol ObjectStreamer<State>: AnyObject {
+public protocol ObjectStreamer<State>: AnyObject, Hashable {
     associatedtype State
+    typealias Stream = AsyncStream<State>
 
     var streamerID: ObjectIdentifier { get }
-    var continuation: AsyncStream<State>.Continuation { get }
+    var continuation: Stream.Continuation { get }
+    static func makeStateStream(
+        _ policy: Stream.Continuation.BufferingPolicy
+    ) -> (stream: Stream, continuation: Stream.Continuation)
+
 }
 
 public extension ObjectStreamer {
     var streamerID: ObjectIdentifier { ObjectIdentifier(self) }
+    
+    @inlinable
+    static func makeStateStream(
+        _ policy: Stream.Continuation.BufferingPolicy = .unbounded
+    ) -> (stream: Stream, continuation: Stream.Continuation) {
+        AsyncStream.makeStream(of: State.self, bufferingPolicy: policy)
+    }
+    
+    @inlinable
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.streamerID == rhs.streamerID
+    }
+    
+    @inlinable
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(streamerID)
+    }
 }

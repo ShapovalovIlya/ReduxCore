@@ -8,3 +8,6 @@
 import Foundation
 
 @_exported import ReduxStream
+@_exported import ReduxSync
+
+extension StateStreamer: ObjectStreamer {}

@@ -14,26 +14,25 @@ public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
     public typealias Reducer = (inout State, Action) -> Void
-    
-    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
-    public typealias GraphObserver = Observer<GraphStore>
     public typealias GraphStreamer = StateStreamer<GraphStore>
     
+    /// `ObjectStreamer` adopter that can receive async stream of `Graph<State, Action>`
+    public typealias Streamer = ObjectStreamer<GraphStore>
+    public typealias StreamerContinuation = AsyncStream<GraphStore>.Continuation
+    
     public let queue = DispatchQueue(label: "Store queue", qos: .userInteractive)
+    
+    private(set) var state: State
     public var graph: GraphStore { GraphStore(state, dispatch: dispatch) }
     
     //MARK: - Private properties
-    private(set) var observers = Set<GraphObserver>()
-    private(set) var streamers = Set<GraphStreamer>()
-    private(set) var state: State
+    private var drivers = Set<GraphStreamer>()
+    private var continuations: [ObjectIdentifier: StreamerContinuation] = .init()
     private let lock = NSRecursiveLock()
     let reducer: Reducer
     
     //MARK: - init(_:)
-    public init(
-        initial state: State,
-        reducer: @escaping Reducer
-    ) {
+    public init(initial state: State, reducer: @escaping Reducer) {
         self.state = state
         self.reducer = reducer
     }
@@ -43,19 +42,30 @@ public final class Store<State, Action>: @unchecked Sendable {
         graph[keyPath: keyPath]
     }
     
+    //MARK: - Deprecations
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
+    public typealias GraphObserver = Observer<GraphStore>
+    
+    @available(*, deprecated)
+    private(set) var observers = Set<GraphObserver>()
+    
+    @available(*, deprecated)
+    func notify(_ observer: GraphObserver) {
+        observer.queue.async { [graph] in
+            let status = observer.observe?(graph)
+            
+            guard case .dead = status else { return }
+            _ = self.queue.sync {
+                self.observers.remove(observer)
+            }
+        }
+    }
+
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
     public func subscribe(_ observer: GraphObserver) {
         queue.sync {
             observers.insert(observer)
             notify(observer)
-        }
-    }
-    
-    public func subscribe(_ streamer: GraphStreamer) {
-        queue.sync {
-            streamer.activate()
-            streamers.insert(streamer)
-            yield(streamer)
         }
     }
     
@@ -68,11 +78,42 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    //MARK: - Streamer methods
+    public func insert(_ streamer: some Streamer) {
+        streamer.continuation.onTermination = { [weak self] _ in
+            self?.remove(streamer)
+        }
+        queue.sync {
+            continuations[streamer.streamerID] = streamer.continuation
+            streamer.continuation.yield(graph)
+        }
+    }
+    
+    @discardableResult
+    public func remove(_ streamer: some Streamer) -> Bool {
+        lock.withLock {
+            continuations.removeValue(forKey: streamer.streamerID) != nil
+        }
+    }
+    
+    public func contains(_ streamer: some Streamer) -> Bool {
+        lock.withLock { continuations[streamer.streamerID] != nil }
+    }
+    
+    //MARK: - GraphStreamer methods
+    public func subscribe(_ streamer: GraphStreamer) {
+        queue.sync {
+            streamer.activate()
+            drivers.insert(streamer)
+            yield(streamer)
+        }
+    }
+    
     public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         let streamers = builder()
         streamers.forEach { $0.activate() }
         queue.sync {
-            self.streamers.formUnion(streamers)
+            self.drivers.formUnion(streamers)
             streamers.forEach(yield)
         }
     }
@@ -80,12 +121,12 @@ public final class Store<State, Action>: @unchecked Sendable {
     public func unsubscribe(_ streamer: GraphStreamer) {
         queue.sync {
             streamer.invalidate()
-            self.streamers.remove(streamer)
+            self.drivers.remove(streamer)
         }
     }
     
-    public func contains(_ streamer: GraphStreamer) -> Bool {
-        lock.withLock { streamers.contains(streamer) }
+    public func installed(_ driver: GraphStreamer) -> Bool {
+        lock.withLock { drivers.contains(driver) }
     }
     
     //MARK: - Internal methods
@@ -94,7 +135,10 @@ public final class Store<State, Action>: @unchecked Sendable {
         queue.sync {
             reducer(&state, action)
             observers.forEach(notify)
-            streamers.forEach(yield)
+            drivers.forEach(yield)
+            continuations.forEach { _, continuation in
+                continuation.yield(graph)
+            }
         }
     }
     
@@ -102,23 +146,12 @@ public final class Store<State, Action>: @unchecked Sendable {
 
 //MARK: - Private methods
 private extension Store {
-    func notify(_ observer: GraphObserver) {
-        observer.queue.async { [graph] in
-            let status = observer.observe?(graph)
-            
-            guard case .dead = status else { return }
-            _ = self.queue.sync {
-                self.observers.remove(observer)
-            }
-        }
-    }
     
     func yield(_ streamer: GraphStreamer) {
         if streamer.isActive {
             streamer.continuation.yield(graph)
             return
         }
-        streamers.remove(streamer)
+        drivers.remove(streamer)
     }
-    
 }

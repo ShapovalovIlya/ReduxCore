@@ -13,17 +13,35 @@ import ReduxStream
 struct StoreTestsNew {
     typealias Sut = Store<Int, Int>
     
-    @Test func storeStreamerCRUD() async throws {
+    @Test func storeDrivers() async throws {
         let sut = makeSUT()
-        let streamer = StateStreamer<Sut.GraphStore>()
+        let driver = StateStreamer<Sut.GraphStore>()
         
-        sut.subscribe(streamer)
+        sut.subscribe(driver)
         
-        #expect(sut.contains(streamer) == true)
+        #expect(sut.installed(driver) == true)
         
-        sut.unsubscribe(streamer)
+        sut.unsubscribe(driver)
         
-        #expect(sut.contains(streamer) == false)
+        #expect(sut.installed(driver) == false)
+    }
+    
+    @Test func storeStreamers() async throws {
+        let sut = makeSUT()
+        let streamer1 = StateStreamer<Sut.GraphStore>()
+        let streamer2 = StateStreamer<Sut.GraphStore>()
+        
+        sut.insert(streamer1)
+        sut.insert(streamer2)
+        
+        #expect(sut.contains(streamer1) == true)
+        #expect(sut.contains(streamer2) == true)
+        
+        sut.remove(streamer1)
+        streamer2.continuation.finish()
+        
+        #expect(sut.contains(streamer1) == false)
+        #expect(sut.contains(streamer2) == false)
     }
 }
 
@@ -58,38 +76,6 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(sut.state, 102)
     }
     
-    func test_subscribeObserver() {
-        let sut = makeSUT()
-        let observer0 = Observer<Store<Int, Int>.GraphStore>(observe: { _ in .active })
-        let observer1 = Observer<Store<Int, Int>.GraphStore>(observe: { _ in .active })
-        let observer2 = Observer<Store<Int, Int>.GraphStore>(observe: { _ in .active })
-
-        sut.subscribe(observer0)
-        sut.subscribe(observer1)
-        sut.subscribe(observer2)
-        
-        XCTAssertTrue(sut.observers.contains(observer0))
-        XCTAssertTrue(sut.observers.contains(observer1))
-        XCTAssertTrue(sut.observers.contains(observer2))
-    }
-    
-    func test_subscrieBuilder_Observer() {
-        let sut = makeSUT()
-        let observer0 = Observer<TestStore>(observe: { _ in .active })
-        let observer1 = Observer<TestStore>(observe: { _ in .active })
-        let observer2 = Observer<TestStore>(observe: { _ in .active })
-
-        sut.subscribe {
-            observer0
-            observer1
-            observer2
-        }
-                
-        XCTAssertTrue(sut.observers.contains(observer0))
-        XCTAssertTrue(sut.observers.contains(observer1))
-        XCTAssertTrue(sut.observers.contains(observer2))
-    }
-    
     func test_subscribeStreamer() {
         let sut = makeSUT()
         let one = StateStreamer<TestStore>()
@@ -100,9 +86,9 @@ final class StoreTests: XCTestCase {
         sut.subscribe(two)
         sut.subscribe(three)
         
-        XCTAssertTrue(sut.contains(one))
-        XCTAssertTrue(sut.contains(two))
-        XCTAssertTrue(sut.contains(three))
+        XCTAssertTrue(sut.installed(one))
+        XCTAssertTrue(sut.installed(two))
+        XCTAssertTrue(sut.installed(three))
     }
     
     func test_subscribeBuilder_Streamer() {
@@ -117,9 +103,9 @@ final class StoreTests: XCTestCase {
             three
         }
         
-        XCTAssertTrue(sut.contains(one))
-        XCTAssertTrue(sut.contains(two))
-        XCTAssertTrue(sut.contains(three))
+        XCTAssertTrue(sut.installed(one))
+        XCTAssertTrue(sut.installed(two))
+        XCTAssertTrue(sut.installed(three))
     }
     
     func test_store_notifyStreamer() async throws {
