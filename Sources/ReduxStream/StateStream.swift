@@ -7,7 +7,7 @@
 
 import Foundation
 
-public final class StateStreamer<State>: @unchecked Sendable, ObjectStreamer {
+public final class StateStreamer<State>: @unchecked Sendable {
     private let lock = NSLock()
     private var _isActive = false
     
@@ -44,7 +44,7 @@ public final class StateStreamer<State>: @unchecked Sendable, ObjectStreamer {
 extension StateStreamer: Equatable {
     @inlinable
     public static func == (lhs: StateStreamer, rhs: StateStreamer) -> Bool {
-        lhs.streamerID == rhs.streamerID
+        ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 }
 
@@ -52,6 +52,6 @@ extension StateStreamer: Equatable {
 extension StateStreamer: Hashable {
     @inlinable
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(streamerID)
+        hasher.combine(ObjectIdentifier(self))
     }
 }

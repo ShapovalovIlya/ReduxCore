@@ -7,7 +7,7 @@
 
 import Foundation
 
-public protocol ObjectStreamer: AnyObject {
+public protocol ObjectStreamer<State>: AnyObject {
     associatedtype State
 
     var streamerID: ObjectIdentifier { get }

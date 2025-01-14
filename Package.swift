@@ -13,13 +13,16 @@ let package = Package(
     products: [
         .library(name: "ReduxCore", targets: ["ReduxCore"]),
         .library(name: "ReduxStream", targets: ["ReduxStream"]),
+        .library(name: "ReduxSync", targets: ["ReduxSync"])
     ],
     targets: [
+        .target(name: "ReduxSync"),
         .target(name: "ReduxStream"),
         .target(name: "StoreThread"),
         .target(
             name: "ReduxCore",
             dependencies: [
+                "ReduxSync",
                 "ReduxStream",
                 "StoreThread",
             ]
