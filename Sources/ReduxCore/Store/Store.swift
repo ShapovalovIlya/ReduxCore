@@ -43,7 +43,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     }
     
     //MARK: - Deprecations
-    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
     public typealias GraphObserver = Observer<GraphStore>
     
     @available(*, deprecated)
@@ -61,7 +61,7 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
 
-    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
     public func subscribe(_ observer: GraphObserver) {
         queue.sync {
             observers.insert(observer)
@@ -69,12 +69,31 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
-    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream")
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
     public func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
         queue.sync {
             self.observers.formUnion(observers)
             observers.forEach(notify)
+        }
+    }
+    
+    @available(*, deprecated, renamed: "install")
+    public func subscribe(_ streamer: GraphStreamer) {
+        queue.sync {
+            streamer.activate()
+            drivers.insert(streamer)
+            yield(streamer)
+        }
+    }
+    
+    @available(*, deprecated, renamed: "installAll")
+    public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
+        let streamers = builder()
+        streamers.forEach { $0.activate() }
+        queue.sync {
+            self.drivers.formUnion(streamers)
+            streamers.forEach(yield)
         }
     }
     
@@ -101,20 +120,20 @@ public final class Store<State, Action>: @unchecked Sendable {
     }
     
     //MARK: - GraphStreamer methods
-    public func subscribe(_ streamer: GraphStreamer) {
+    public func install(_ driver: GraphStreamer) {
         queue.sync {
-            streamer.activate()
-            drivers.insert(streamer)
-            yield(streamer)
+            driver.activate()
+            drivers.insert(driver)
+            yield(driver)
         }
     }
     
-    public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
-        let streamers = builder()
-        streamers.forEach { $0.activate() }
+    public func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
+        let drivers = builder()
+        drivers.forEach { $0.activate() }
         queue.sync {
-            self.drivers.formUnion(streamers)
-            streamers.forEach(yield)
+            self.drivers.formUnion(drivers)
+            drivers.forEach(yield)
         }
     }
     

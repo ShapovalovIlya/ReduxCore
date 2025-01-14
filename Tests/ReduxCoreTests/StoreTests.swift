@@ -17,7 +17,7 @@ struct StoreTestsNew {
         let sut = makeSUT()
         let driver = StateStreamer<Sut.GraphStore>()
         
-        sut.subscribe(driver)
+        sut.install(driver)
         
         #expect(sut.installed(driver) == true)
         
@@ -82,9 +82,9 @@ final class StoreTests: XCTestCase {
         let two = StateStreamer<TestStore>()
         let three = StateStreamer<TestStore>()
         
-        sut.subscribe(one)
-        sut.subscribe(two)
-        sut.subscribe(three)
+        sut.install(one)
+        sut.install(two)
+        sut.install(three)
         
         XCTAssertTrue(sut.installed(one))
         XCTAssertTrue(sut.installed(two))
@@ -97,7 +97,7 @@ final class StoreTests: XCTestCase {
         let two = StateStreamer<TestStore>()
         let three = StateStreamer<TestStore>()
         
-        sut.subscribe {
+        sut.installAll {
             one
             two
             three
@@ -113,7 +113,7 @@ final class StoreTests: XCTestCase {
         let streamer = StateStreamer<TestStore>()
         let arr = NSMutableArray()
         
-        sut.subscribe(streamer)
+        sut.install(streamer)
         
         let task = Task {
             for await value in streamer.state {
