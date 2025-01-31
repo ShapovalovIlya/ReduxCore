@@ -14,7 +14,7 @@ public final class OSReadWriteLock<State>: @unchecked Sendable, NSLocking {
     @usableFromInline var rwLock = pthread_rwlock_t()
     
     //MARK: - init(_:)
-    init(initial: State) {
+    public init(initial: State) {
         self.state = initial
         pthread_rwlock_init(&rwLock, nil)
     }
@@ -22,25 +22,45 @@ public final class OSReadWriteLock<State>: @unchecked Sendable, NSLocking {
     deinit { pthread_rwlock_destroy(&rwLock) }
     
     //MARK: - Public methods
-    @inlinable public var unsafe: State { state }
-    
-    @inlinable public var identifier: ObjectIdentifier {
-        ObjectIdentifier(self)
+    @inlinable
+    public func unlock() {
+        pthread_rwlock_unlock(&rwLock)
     }
     
-    @inlinable public func unlock() { pthread_rwlock_unlock(&rwLock) }
-    @inlinable public func lock() { pthread_rwlock_wrlock(&rwLock) }
-    @inlinable public func readLock() { pthread_rwlock_rdlock(&rwLock) }
-    
-    @inlinable public func `try`() -> Bool {
-        pthread_rwlock_trywrlock(&rwLock) == .zero
-    }
-    @inlinable public func tryRead() -> Bool {
-        pthread_rwlock_tryrdlock(&rwLock) == .zero
+    @inlinable
+    public func lock() {
+        pthread_rwlock_wrlock(&rwLock)
     }
 }
 
-extension OSReadWriteLock where State == Void {
+public extension OSReadWriteLock {
+    @inlinable
+    var unsafe: State { state }
+    
+    @inlinable
+    var identifier: ObjectIdentifier { ObjectIdentifier(self) }
+    
+    @inlinable
+    func readLock() {
+        pthread_rwlock_rdlock(&rwLock)
+    }
+    
+    @inlinable
+    func `try`() -> Bool {
+        pthread_rwlock_trywrlock(&rwLock) == .zero
+    }
+    @inlinable
+    func tryRead() -> Bool {
+        pthread_rwlock_tryrdlock(&rwLock) == .zero
+    }
+    
+    @inlinable
+    func withLock<R>(_ block: (inout State) throws -> R) rethrows -> R {
+        try withLocking(lock, block: block)
+    }
+}
+
+public extension OSReadWriteLock where State == Void {
     convenience init() {
         self.init(initial: ())
         
@@ -49,13 +69,13 @@ extension OSReadWriteLock where State == Void {
     @inlinable
     @discardableResult
     func read<R>(_ block: () throws -> R) rethrows -> R {
-        try withLocking(readLock, block: block)
+        try withLocking(readLock) { _ in try block() }
     }
     
     @inlinable
     @discardableResult
     func write<R>(_ block: () throws -> R) rethrows -> R {
-        try withLocking(lock, block: block)
+        try withLocking(lock) { _ in try block() }
     }
 }
 
@@ -63,11 +83,11 @@ extension OSReadWriteLock {
     @inlinable
     func withLocking<R>(
         _ lock: () -> Void,
-        block: () throws -> R
+        block: (inout State) throws -> R
     ) rethrows -> R {
         lock()
         defer { unlock() }
-        return try block()
+        return try block(&state)
     }
 }
 

@@ -13,28 +13,26 @@ struct ReduxSyncTests {
 
     @Test
     func synchronised() async throws {
-        var sut = Synchronised(state: 0)
-        
         await withTaskGroup(of: Void.self) { group in
+            @Synchronised var sut = 0
             group.addTask {
                 for _ in 1...100 {
-                    sut.withLock { counter in
-                        counter += 1
-                    }
+                    sut += 1
                 }
             }
             group.addTask {
                 for _ in 1...100 {
-                    sut.withLock { counter in
-                        counter += 1
-                    }
+                    sut += 1
                 }
             }
             await group.waitForAll()
+            #expect(sut == 200)
         }
-        
-        #expect(sut.unsafe == 200)
     }
     
-    
+    @Test func rwlock() async throws {
+        let sut = OSReadWriteLock(initial: 1)
+        
+        
+    }
 }
