@@ -8,28 +8,35 @@
 import Foundation
 import pthread
 
-public final class OSReadWriteLock<State>: @unchecked Sendable, NSLocking {
+public final class OSReadWriteLock<State>: NSLocking, @unchecked Sendable {
     //MARK: - internal properties
+    @usableFromInline let readWriteLock: UnsafeMutablePointer<pthread_rwlock_t>
     @usableFromInline var state: State
-    @usableFromInline var rwLock = pthread_rwlock_t()
     
     //MARK: - init(_:)
     public init(initial: State) {
         self.state = initial
-        pthread_rwlock_init(&rwLock, nil)
+        self.readWriteLock = UnsafeMutablePointer<pthread_rwlock_t>.allocate(capacity: 1)
+        self.readWriteLock.initialize(to: pthread_rwlock_t())
+        pthread_rwlock_init(readWriteLock, nil)
     }
     
-    deinit { pthread_rwlock_destroy(&rwLock) }
+    //MARK: - deinit
+    deinit {
+        pthread_rwlock_destroy(readWriteLock)
+        readWriteLock.deinitialize(count: 1)
+        readWriteLock.deallocate()
+    }
     
     //MARK: - Public methods
     @inlinable
     public func unlock() {
-        pthread_rwlock_unlock(&rwLock)
+        pthread_rwlock_unlock(readWriteLock)
     }
     
     @inlinable
     public func lock() {
-        pthread_rwlock_wrlock(&rwLock)
+        pthread_rwlock_wrlock(readWriteLock)
     }
 }
 
@@ -40,18 +47,21 @@ public extension OSReadWriteLock {
     @inlinable
     var identifier: ObjectIdentifier { ObjectIdentifier(self) }
     
+    /// The function acquires a read lock on `OSReadWriteLock`,
+    /// provided that rwlock is not presently held for writing and no writer threads are presently blocked on the lock.
+    /// If the read lock cannot be immedi-ately immediately acquired, the calling thread blocks until it can acquire the lock.
     @inlinable
     func readLock() {
-        pthread_rwlock_rdlock(&rwLock)
+        pthread_rwlock_rdlock(readWriteLock)
     }
     
     @inlinable
     func `try`() -> Bool {
-        pthread_rwlock_trywrlock(&rwLock) == .zero
+        pthread_rwlock_trywrlock(readWriteLock) == .zero
     }
     @inlinable
     func tryRead() -> Bool {
-        pthread_rwlock_tryrdlock(&rwLock) == .zero
+        pthread_rwlock_tryrdlock(readWriteLock) == .zero
     }
     
     @inlinable
@@ -61,9 +71,9 @@ public extension OSReadWriteLock {
 }
 
 public extension OSReadWriteLock where State == Void {
+    @inlinable
     convenience init() {
         self.init(initial: ())
-        
     }
     
     @inlinable

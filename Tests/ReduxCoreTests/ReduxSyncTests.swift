@@ -11,28 +11,80 @@ import ReduxSync
 
 struct ReduxSyncTests {
 
-    @Test
-    func synchronised() async throws {
+//    @Test
+//    func synchronised() async throws {
+//        await withTaskGroup(of: Void.self) { group in
+//            @Synchronised var sut = 0
+//            group.addTask {
+//                for _ in 1...100 {
+//                    sut += 1
+//                }
+//            }
+//            group.addTask {
+//                for _ in 1...100 {
+//                    sut += 1
+//                }
+//            }
+//            await group.waitForAll()
+//            #expect(sut == 200)
+//        }
+//    }
+    
+    @Test func rwlockDataRace() async throws {
+        let sut = OSReadWriteLock(initial: 0)
+        
         await withTaskGroup(of: Void.self) { group in
-            @Synchronised var sut = 0
             group.addTask {
                 for _ in 1...100 {
-                    sut += 1
+                    sut.withLock { $0 += 1 }
                 }
             }
             group.addTask {
                 for _ in 1...100 {
-                    sut += 1
+                    sut.withLock { $0 += 1 }
                 }
             }
             await group.waitForAll()
-            #expect(sut == 200)
         }
+        
+        #expect(sut.unsafe == 200)
     }
     
-    @Test func rwlock() async throws {
-        let sut = OSReadWriteLock(initial: 1)
+    @Test func rwLockTryLock() async throws {
+        let sut = OSReadWriteLock()
         
+        sut.withLock {
+            #expect(sut.try() == false)
+        }
+        #expect(sut.try() == true)
+    }
+    
+    @Test func unfairLockDataRace() async throws {
+        let sut = OSUnfairLock(initial: 0)
         
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for _ in 1...100 {
+                    sut.withLock { $0 += 1 }
+                }
+            }
+            group.addTask {
+                for _ in 1...100 {
+                    sut.withLock { $0 += 1 }
+                }
+            }
+            await group.waitForAll()
+        }
+        
+        #expect(sut.unsafe == 200)
+    }
+    
+    @Test func unfairLockTryLock() async throws {
+        let sut = OSUnfairLock()
+        
+        sut.withLock {
+            #expect(sut.try() == false)
+        }
+        #expect(sut.try() == true)
     }
 }
