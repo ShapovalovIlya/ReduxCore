@@ -83,8 +83,25 @@ struct ReduxSyncTests {
         let sut = OSUnfairLock()
         
         sut.withLock {
-            #expect(sut.try() == false)
+            #expect(sut.lockIfAvailable() == false)
         }
-        #expect(sut.try() == true)
+        #expect(sut.lockIfAvailable() == true)
+    }
+    
+    @Test func unfairLockIfAvailable() async throws {
+        let sut = OSUnfairLock()
+        var counter = 0
+        
+        sut.withLockIfAvailable {
+            counter += 1
+        }
+        
+        sut.lock()
+        sut.withLockIfAvailable {
+            counter += 1
+        }
+        sut.unlock()
+        
+        #expect(counter == 1)
     }
 }
