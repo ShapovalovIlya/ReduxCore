@@ -61,7 +61,8 @@ public final class OSUnfairLock<State>: NSLocking, @unchecked Sendable {
     @available(*, unavailable)
     @inlinable
     public func lock(_ flags: Flags) {
-//        os_unfair_lock_lock_with_flags(pointer, <#T##flags: __os_unfair_lock_flags_t##__os_unfair_lock_flags_t#>)
+        
+//        os_unfair_lock_lock_with_flags(pointer, __os_unfair_lock_flags_t)
     }
     
     /// Unlocks an `OSUnfairLock`.
@@ -75,6 +76,9 @@ public extension OSUnfairLock {
     //MARK: - Public methods
     @inlinable
     var unsafe: State { state }
+    
+    @inlinable
+    var identifier: ObjectIdentifier { ObjectIdentifier(self) }
     
     /// Asserts if the lock object fails to meet specified ownership requirements.
     /// - Parameter precondition: expected ownership status.

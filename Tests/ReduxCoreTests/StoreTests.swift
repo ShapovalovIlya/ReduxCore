@@ -8,7 +8,7 @@
 import XCTest
 import Testing
 import ReduxStream
-@testable import ReduxCore
+import ReduxCore
 
 struct StoreTestsNew {
     typealias Sut = Store<Int, Int>
@@ -121,9 +121,9 @@ final class StoreTests: XCTestCase {
             }
         }
         
-        sut.dispatch(1)
-        sut.dispatch(1)
-        sut.dispatch(1)
+        sut.graph.dispatch(1)
+        sut.graph.dispatch(1)
+        sut.graph.dispatch(1)
         streamer.continuation.finish()
 
         await task.value

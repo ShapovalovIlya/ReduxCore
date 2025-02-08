@@ -23,12 +23,12 @@ public final class Store<State, Action>: @unchecked Sendable {
     public let queue = DispatchQueue(label: "Store queue", qos: .userInteractive)
     
     private(set) var state: State
-    public var graph: GraphStore { GraphStore(state, dispatch: dispatch) }
+    public var graph: GraphStore { GraphStore(state, dispatcher: dispatcher) }
     
     //MARK: - Private properties
     private var drivers = Set<GraphStreamer>()
     private var continuations: [ObjectIdentifier: StreamerContinuation] = .init()
-    private let lock = NSRecursiveLock()
+    private let lock = NSLock()
     let reducer: Reducer
     
     //MARK: - init(_:)
@@ -38,6 +38,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     }
     
     //MARK: - Public methods
+    @inlinable
     public subscript<T>(dynamicMember keyPath: KeyPath<GraphStore, T>) -> T {
         graph[keyPath: keyPath]
     }
@@ -78,14 +79,6 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
-    @available(*, deprecated, renamed: "install")
-    public func subscribe(_ streamer: GraphStreamer) {
-        queue.sync {
-            streamer.activate()
-            drivers.insert(streamer)
-            yield(streamer)
-        }
-    }
     
     @available(*, deprecated, renamed: "installAll")
     public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
@@ -98,9 +91,18 @@ public final class Store<State, Action>: @unchecked Sendable {
     }
     
     //MARK: - Streamer methods
-    public func insert(_ streamer: some Streamer) {
+    
+    /// Create subscription between `Streamer` and `Store`.
+    ///
+    /// `Store` hold `Streamer`'s continuation to yield new state, and setup `.onTermination` handler to unsubscribe.
+    ///
+    /// - Important: `Store` doesn't hold strong reference to `Streamer`.
+    ///              If you need this behaviour, use `install(_:)` method.
+    ///
+    /// - Parameter streamer: `Streamer` instance to subscribe
+    public func subscribe(_ streamer: some Streamer) {
         streamer.continuation.onTermination = { [weak self] _ in
-            self?.remove(streamer)
+            self?.unsubscribe(streamer)
         }
         queue.sync {
             continuations[streamer.streamerID] = streamer.continuation
@@ -108,18 +110,21 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    /// Remove subscription between `Streamer` and `Store`.
+    /// - Returns: return true if streamer was successfully removed, false if streamer was not subscribed.
     @discardableResult
-    public func remove(_ streamer: some Streamer) -> Bool {
-        lock.withLock {
+    public func unsubscribe(_ streamer: some Streamer) -> Bool {
+        queue.sync {
             continuations.removeValue(forKey: streamer.streamerID) != nil
         }
     }
-    
-    public func contains(_ streamer: some Streamer) -> Bool {
+        
+    /// Check if streamer is subscribed to `Store`.
+    public func contains(streamer: some Streamer) -> Bool {
         lock.withLock { continuations[streamer.streamerID] != nil }
     }
     
-    //MARK: - GraphStreamer methods
+    //MARK: - Driver methods
     public func install(_ driver: GraphStreamer) {
         queue.sync {
             driver.activate()
@@ -137,22 +142,22 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
-    public func unsubscribe(_ streamer: GraphStreamer) {
+    public func uninstall(_ driver: GraphStreamer) {
         queue.sync {
-            streamer.invalidate()
-            self.drivers.remove(streamer)
+            driver.invalidate()
+            self.drivers.remove(driver)
         }
     }
     
-    public func installed(_ driver: GraphStreamer) -> Bool {
+    public func contains(driver: GraphStreamer) -> Bool {
         lock.withLock { drivers.contains(driver) }
     }
     
     //MARK: - Internal methods
     @Sendable
-    func dispatch(_ action: Action) {
+    func dispatcher(_ effect: GraphStore.Effect) {
         queue.sync {
-            reducer(&state, action)
+            state = effect.reduce(state, using: reducer)
             observers.forEach(notify)
             drivers.forEach(yield)
             continuations.forEach { _, continuation in
@@ -160,7 +165,6 @@ public final class Store<State, Action>: @unchecked Sendable {
             }
         }
     }
-    
 }
 
 //MARK: - Private methods

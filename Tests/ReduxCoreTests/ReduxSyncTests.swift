@@ -54,9 +54,9 @@ struct ReduxSyncTests {
         let sut = OSReadWriteLock()
         
         sut.withLock {
-            #expect(sut.try() == false)
+            #expect(sut.tryWrite() == false)
         }
-        #expect(sut.try() == true)
+        #expect(sut.tryWrite() == true)
     }
     
     @Test func unfairLockDataRace() async throws {

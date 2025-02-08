@@ -49,14 +49,14 @@ public extension OSReadWriteLock {
     
     /// The function acquires a read lock on `OSReadWriteLock`,
     /// provided that rwlock is not presently held for writing and no writer threads are presently blocked on the lock.
-    /// If the read lock cannot be immedi-ately immediately acquired, the calling thread blocks until it can acquire the lock.
+    /// If the read lock cannot be immediately immediately acquired, the calling thread blocks until it can acquire the lock.
     @inlinable
     func readLock() {
         pthread_rwlock_rdlock(readWriteLock)
     }
     
     @inlinable
-    func `try`() -> Bool {
+    func tryWrite() -> Bool {
         pthread_rwlock_trywrlock(readWriteLock) == .zero
     }
     @inlinable
