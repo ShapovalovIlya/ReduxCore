@@ -5,97 +5,95 @@
 //  Created by Илья Шаповалов on 23.12.2023.
 //
 
-import XCTest
 import Testing
 import ReduxStream
 import ReduxCore
 
-struct StoreTestsNew {
+struct StoreTests {
     typealias Sut = Store<Int, Int>
+    typealias SutGraph = Sut.GraphStore
     
     @Test func storeDrivers() async throws {
         let sut = makeSUT()
-        let driver = StateStreamer<Sut.GraphStore>()
+        let driver = StateStreamer<SutGraph>()
         
         sut.install(driver)
         
-        #expect(sut.installed(driver) == true)
+        #expect(sut.contains(driver: driver) == true)
         
-        sut.unsubscribe(driver)
+        sut.uninstall(driver)
         
-        #expect(sut.installed(driver) == false)
+        #expect(sut.contains(driver: driver) == false)
     }
     
     @Test func storeStreamers() async throws {
         let sut = makeSUT()
-        let streamer1 = StateStreamer<Sut.GraphStore>()
-        let streamer2 = StateStreamer<Sut.GraphStore>()
+        let streamer1 = StateStreamer<SutGraph>()
+        let streamer2 = StateStreamer<SutGraph>()
         
-        sut.insert(streamer1)
-        sut.insert(streamer2)
+        sut.subscribe(streamer1)
+        sut.subscribe(streamer2)
         
-        #expect(sut.contains(streamer1) == true)
-        #expect(sut.contains(streamer2) == true)
+        #expect(sut.contains(streamer: streamer1) == true)
+        #expect(sut.contains(streamer: streamer2) == true)
         
-        sut.remove(streamer1)
+        sut.unsubscribe(streamer1)
         streamer2.continuation.finish()
         
-        #expect(sut.contains(streamer1) == false)
-        #expect(sut.contains(streamer2) == false)
+        #expect(sut.contains(streamer: streamer1) == false)
+        #expect(sut.contains(streamer: streamer2) == false)
     }
-}
-
-final class StoreTests: XCTestCase {
-    typealias TestStore = Store<Int, Int>.GraphStore
     
-    func test_changeState() {
+    @Test func dispatch() async throws {
         let sut = makeSUT()
         
         sut.graph.dispatch(1)
         sut.graph.dispatch(1)
         sut.graph.dispatch(1)
         
-        XCTAssertEqual(sut.state, 3)
+        #expect(sut.state == 3)
     }
     
-    func test_dataRace() {
+    @Test func dataRace() async throws {
         let sut = makeSUT()
         
-        DispatchQueue.global(qos: .userInitiated).sync {
-            for _ in 0...50 {
-                sut.graph.dispatch(1)
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask(priority: .high) {
+                for _ in 0...50 {
+                    sut.graph.dispatch(1)
+                }
             }
-        }
-        
-        DispatchQueue.global().sync {
-            for _ in 0...50 {
-                sut.graph.dispatch(1)
+            group.addTask(priority: .low) {
+                for _ in 0...50 {
+                    sut.graph.dispatch(1)
+                }
             }
+            await group.waitForAll()
         }
-        
-        XCTAssertEqual(sut.state, 102)
+                
+        #expect(sut.state == 102)
     }
     
-    func test_subscribeStreamer() {
+    @Test func subscribeStreamer() async throws {
         let sut = makeSUT()
-        let one = StateStreamer<TestStore>()
-        let two = StateStreamer<TestStore>()
-        let three = StateStreamer<TestStore>()
+        let one = StateStreamer<SutGraph>()
+        let two = StateStreamer<SutGraph>()
+        let three = StateStreamer<SutGraph>()
         
         sut.install(one)
         sut.install(two)
         sut.install(three)
         
-        XCTAssertTrue(sut.installed(one))
-        XCTAssertTrue(sut.installed(two))
-        XCTAssertTrue(sut.installed(three))
+        #expect(sut.contains(driver: one) == true)
+        #expect(sut.contains(driver: two) == true)
+        #expect(sut.contains(driver: three) == true)
     }
-    
-    func test_subscribeBuilder_Streamer() {
+
+    @Test func subscribeStreamerUsingBuilder() async throws {
         let sut = makeSUT()
-        let one = StateStreamer<TestStore>()
-        let two = StateStreamer<TestStore>()
-        let three = StateStreamer<TestStore>()
+        let one = StateStreamer<SutGraph>()
+        let two = StateStreamer<SutGraph>()
+        let three = StateStreamer<SutGraph>()
         
         sut.installAll {
             one
@@ -103,21 +101,21 @@ final class StoreTests: XCTestCase {
             three
         }
         
-        XCTAssertTrue(sut.installed(one))
-        XCTAssertTrue(sut.installed(two))
-        XCTAssertTrue(sut.installed(three))
+        #expect(sut.contains(driver: one) == true)
+        #expect(sut.contains(driver: two) == true)
+        #expect(sut.contains(driver: three) == true)
     }
-    
-    func test_store_notifyStreamer() async throws {
+
+    @Test func store_notifyDriver() async throws {
         let sut = makeSUT()
-        let streamer = StateStreamer<TestStore>()
-        let arr = NSMutableArray()
+        let streamer = StateStreamer<SutGraph>()
+        var arr = [Int]()
         
         sut.install(streamer)
         
         let task = Task {
             for await value in streamer.state {
-                arr.add(value.state)
+                arr.append(value.state)
             }
         }
         
@@ -125,18 +123,38 @@ final class StoreTests: XCTestCase {
         sut.graph.dispatch(1)
         sut.graph.dispatch(1)
         streamer.continuation.finish()
-
+        
         await task.value
-        XCTAssertEqual(arr, [0,1,2,3])
+        #expect(arr == [0,1,2,3])
     }
     
-}
-
+    @Test func store_notifyStreamer() async throws {
+        let sut = makeSUT()
+        let streamer = StateStreamer<SutGraph>()
+        var arr = [Int]()
         
-fileprivate func makeSUT() -> Store<Int, Int> {
-    Store(initial: 0) { (state: inout Int, action: Int) in
-        state += action
+        sut.subscribe(streamer)
+        
+        let task = Task {
+            for await value in streamer.state {
+                arr.append(value.state)
+            }
+        }
+        
+        sut.graph.dispatch(1)
+        sut.graph.dispatch(1)
+        sut.graph.dispatch(1)
+        streamer.continuation.finish()
+        
+        await task.value
+        #expect(arr == [0,1,2,3])
     }
 }
 
+private extension StoreTests {
+    //MARK: - Helpers
+    func makeSUT() -> Sut {
+        Store(initial: 0) { $0 += $1 }
+    }
+}
 
