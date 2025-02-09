@@ -155,7 +155,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     //MARK: - Internal methods
     @Sendable
-    func dispatcher(_ effect: GraphStore.Effect) {
+    func dispatcher(_ effect: consuming GraphStore.Effect) {
         queue.sync {
             state = effect.reduce(state, using: reducer)
             observers.forEach(notify)

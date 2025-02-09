@@ -39,7 +39,7 @@ public struct Graph<State, Action>: @unchecked Sendable {
 }
 
 public extension Graph {
-    typealias Dispatcher = @Sendable (Effect) -> Void
+    typealias Dispatcher = @Sendable (consuming Effect) -> Void
     
     //MARK: - Effect
     enum Effect {
@@ -63,3 +63,7 @@ public extension Graph {
         }
     }
 }
+
+extension Graph.Effect: Sendable where Action: Sendable {}
+extension Graph.Effect: Equatable where Action: Equatable {}
+extension Graph.Effect: Hashable where Action: Hashable {}

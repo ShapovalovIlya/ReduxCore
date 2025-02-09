@@ -1,4 +1,4 @@
-// swift-tools-version: 5.7.1
+// swift-tools-version: 5.8
 // swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
@@ -16,8 +16,18 @@ let package = Package(
         .library(name: "ReduxSync", targets: ["ReduxSync"])
     ],
     targets: [
-        .target(name: "ReduxSync"),
-        .target(name: "ReduxStream"),
+        .target(
+            name: "ReduxSync",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]
+        ),
+        .target(
+            name: "ReduxStream",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]
+        ),
         .target(name: "StoreThread"),
         .target(
             name: "ReduxCore",
@@ -25,6 +35,9 @@ let package = Package(
                 "ReduxSync",
                 "ReduxStream",
                 "StoreThread",
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
         .testTarget(name: "ReduxCoreTests", dependencies: ["ReduxCore"]),
