@@ -104,4 +104,27 @@ struct ReduxSyncTests {
         
         #expect(counter == 1)
     }
+    
+    @Test func unfairLockProcessStateIfAvailable() async throws {
+        let sut = OSUnfairLock(initial: 0)
+        
+        var blockResult = sut.withLockIfAvailable {
+            $0 += 1
+            let sum = $0
+            return sum
+        }
+        
+        #expect(blockResult == 1)
+        
+        sut.lock()
+        blockResult = sut.withLockIfAvailable {
+            $0 += 1
+            let sum = $0
+            return sum
+        }
+        sut.unlock()
+        
+        #expect(sut.unsafe == 1)
+        #expect(blockResult == nil)
+    }
 }

@@ -128,6 +128,7 @@ public extension OSUnfairLock {
         try withLock { try protected(&state) }
     }
     
+    /// Protect critical section with lock if it is not already been locked.
     @inlinable
     @discardableResult
     func withLockIfAvailable<R>(_ block: () throws -> R) rethrows -> R? {
@@ -140,6 +141,12 @@ public extension OSUnfairLock {
             assert(.notOwner)
         }
         return try block()
+    }
+    
+    @inlinable
+    @discardableResult
+    func withLockIfAvailable<R>(_ protected: (inout State) throws -> R) rethrows -> R? {
+        try withLockIfAvailable { try protected(&state) }
     }
 }
 

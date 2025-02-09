@@ -158,11 +158,12 @@ public final class Store<State, Action>: @unchecked Sendable {
     func dispatcher(_ effect: consuming GraphStore.Effect) {
         queue.sync {
             state = effect.reduce(state, using: reducer)
-            observers.forEach(notify)
             drivers.forEach(yield)
             continuations.forEach { _, continuation in
                 continuation.yield(graph)
             }
+            // deprecated support
+            observers.forEach(notify)
         }
     }
 }
