@@ -44,7 +44,7 @@ struct StoreTests {
         #expect(sut.contains(streamer: streamer2) == false)
     }
     
-    @Test func dispatch() async throws {
+    @Test func dispatchSingle() async throws {
         let sut = makeSUT()
         
         sut.graph.dispatch(1)
@@ -52,6 +52,15 @@ struct StoreTests {
         sut.graph.dispatch(1)
         
         #expect(sut.state == 3)
+    }
+    
+    @Test func dispatchMultiple() async throws {
+        let sut = makeSUT()
+        
+        sut.graph.dispatch(1, 1, 1)
+        sut.graph.dispatch(contentsOf: [1,1,1])
+                
+        #expect(sut.state == 6)
     }
     
     @Test func dataRace() async throws {
@@ -106,7 +115,7 @@ struct StoreTests {
         #expect(sut.contains(driver: three) == true)
     }
 
-    @Test func store_notifyDriver() async throws {
+    @Test func notifyDriverMultipleTimes() async throws {
         let sut = makeSUT()
         let streamer = StateStreamer<SutGraph>()
         var arr = [Int]()
@@ -128,7 +137,28 @@ struct StoreTests {
         #expect(arr == [0,1,2,3])
     }
     
-    @Test func store_notifyStreamer() async throws {
+    @Test func notifyDriverSingleTime() async throws {
+        let sut = makeSUT()
+        let streamer = StateStreamer<SutGraph>()
+        let actions = Array(repeating: 1, count: 3)
+        var arr = [Int]()
+        
+        sut.install(streamer)
+        
+        let task = Task {
+            for await value in streamer.state {
+                arr.append(value.state)
+            }
+        }
+        
+        sut.graph.dispatch(contentsOf: actions)
+        streamer.continuation.finish()
+        
+        await task.value
+        #expect(arr == [0, 3])
+    }
+    
+    @Test func notifyStreamerMultipleTimes() async throws {
         let sut = makeSUT()
         let streamer = StateStreamer<SutGraph>()
         var arr = [Int]()
@@ -149,6 +179,28 @@ struct StoreTests {
         await task.value
         #expect(arr == [0,1,2,3])
     }
+    
+    @Test func notifyStreamerSingleTime() async throws {
+        let sut = makeSUT()
+        let streamer = StateStreamer<SutGraph>()
+        let actions = Array(repeating: 1, count: 3)
+        var arr = [Int]()
+        
+        sut.subscribe(streamer)
+        
+        let task = Task {
+            for await value in streamer.state {
+                arr.append(value.state)
+            }
+        }
+        
+        sut.graph.dispatch(contentsOf: actions)
+        streamer.continuation.finish()
+        
+        await task.value
+        #expect(arr == [0, 3])
+    }
+    
 }
 
 private extension StoreTests {

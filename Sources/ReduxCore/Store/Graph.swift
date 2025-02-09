@@ -8,15 +8,17 @@
 import Foundation
 
 public struct Graph<State, Action>: @unchecked Sendable {
+    @usableFromInline let dispatcher: Dispatcher
     public let state: State
-    public let dispatcher: Dispatcher
-    
+
+    //MARK: - init(_:)
     @Sendable
     init(_ state: State, dispatcher: @escaping Dispatcher) {
         self.state = state
         self.dispatcher = dispatcher
     }
     
+    //MARK: - Public methods
     @inlinable
     @Sendable
     public func dispatch(_ action: Action) {
@@ -39,6 +41,7 @@ public struct Graph<State, Action>: @unchecked Sendable {
 public extension Graph {
     typealias Dispatcher = @Sendable (Effect) -> Void
     
+    //MARK: - Effect
     enum Effect {
         case single(Action)
         case multiple([Action])
