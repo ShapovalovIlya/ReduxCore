@@ -153,6 +153,10 @@ public final class Store<State, Action>: @unchecked Sendable {
         lock.withLock { drivers.contains(driver) }
     }
     
+    public func dispatch(_ action: Action) {
+        dispatcher(.single(action))
+    }
+    
     //MARK: - Internal methods
     @Sendable
     func dispatcher(_ effect: consuming GraphStore.Effect) {
