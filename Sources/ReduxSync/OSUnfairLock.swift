@@ -143,6 +143,7 @@ public extension OSUnfairLock {
         return try block()
     }
     
+    /// Protect critical section with lock if it is not already been locked.
     @inlinable
     @discardableResult
     func withLockIfAvailable<R>(_ protected: (inout State) throws -> R) rethrows -> R? {

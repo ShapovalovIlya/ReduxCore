@@ -71,7 +71,7 @@ public extension AsyncSequence {
     @discardableResult
     func forEachTask(
         priority: TaskPriority? = nil,
-        _ body: @escaping (Element) throws -> Void
+        _ body: @escaping @Sendable (Element) throws -> Void
     ) -> Task<Void, Error> {
         Task(priority: priority) {
             for try await element in self {
@@ -89,7 +89,7 @@ public extension AsyncSequence {
     @discardableResult
     func forEachTask(
         priority: TaskPriority? = nil,
-        _ body: @escaping (Element) async throws -> Void
+        _ body: @escaping @Sendable (Element) async throws -> Void
     ) -> Task<Void, Error> {
         Task(priority: priority) {
             for try await element in self {

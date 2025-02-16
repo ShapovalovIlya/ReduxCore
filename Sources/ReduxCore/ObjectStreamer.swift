@@ -7,7 +7,7 @@
 
 import Foundation
 
-public protocol ObjectStreamer<State>: AnyObject, Hashable {
+public protocol ObjectStreamer<State>: AnyObject, Sendable, Hashable {
     associatedtype State
     typealias Stream = AsyncStream<State>
 

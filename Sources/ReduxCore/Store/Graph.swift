@@ -33,8 +33,8 @@ public struct Graph<State, Action>: @unchecked Sendable {
     
     @inlinable
     @Sendable
-    public func dispatch(contentsOf actions: [Action]) {
-        dispatcher(.multiple(actions))
+    public func dispatch(contentsOf s: some Sequence<Action>) {
+        dispatcher(.multiple(Array(s)))
     }
 }
 

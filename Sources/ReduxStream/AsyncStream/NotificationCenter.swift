@@ -5,7 +5,7 @@
 //  Created by Илья Шаповалов on 15.05.2024.
 //
 
-import Foundation
+@preconcurrency import Foundation
 
 public extension NotificationCenter {
     

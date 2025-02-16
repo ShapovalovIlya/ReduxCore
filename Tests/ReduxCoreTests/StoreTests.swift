@@ -44,7 +44,20 @@ struct StoreTests {
         #expect(sut.contains(streamer: streamer2) == false)
     }
     
-    @Test func dispatchSingle() async throws {
+    @Test func storeDispatchActions() async throws {
+        let sut = makeSUT()
+        
+        sut.dispatch(1)
+        sut.dispatch(1)
+        
+        #expect(sut.state == 2)
+        
+        sut.dispatch(contentsOf: [1,2,3])
+        
+        #expect(sut.state == 8)
+    }
+    
+    @Test func graphDispatchSingle() async throws {
         let sut = makeSUT()
         
         sut.graph.dispatch(1)

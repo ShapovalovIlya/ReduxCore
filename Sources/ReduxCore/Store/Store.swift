@@ -153,12 +153,21 @@ public final class Store<State, Action>: @unchecked Sendable {
         lock.withLock { drivers.contains(driver) }
     }
     
+    /// Dispatch single action
+    @inlinable
     public func dispatch(_ action: Action) {
         dispatcher(.single(action))
     }
     
+    /// Dispatch sequence of actions
+    @inlinable
+    public func dispatch(contentsOf s: some Sequence<Action>) {
+        dispatcher(.multiple(Array(s)))
+    }
+    
     //MARK: - Internal methods
     @Sendable
+    @usableFromInline
     func dispatcher(_ effect: consuming GraphStore.Effect) {
         queue.sync {
             state = effect.reduce(state, using: reducer)
