@@ -125,6 +125,12 @@ public final class Store<State, Action>: @unchecked Sendable {
     }
     
     //MARK: - Driver methods
+    
+    /// Subscribe driver (`GraphStreamer` object) to state updates.
+    ///
+    /// - Important: `Store` hold strong reference to `GraphStreamer`. Use `uninstall(_:)` method to remove it.
+    ///
+    /// - Parameter streamer: `GraphStreamer` instance to subscribe
     public func install(_ driver: GraphStreamer) {
         queue.sync {
             driver.activate()
@@ -142,6 +148,11 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    /// Remove `GraphStreamer` from `Store`'s subscription.
+    ///
+    /// After uninstalling, `Store` no longer hold strong reference to `GraphStreamer`
+    ///
+    /// - Parameter driver: `GraphStreamer` instance to remove.
     public func uninstall(_ driver: GraphStreamer) {
         queue.sync {
             driver.invalidate()
@@ -149,6 +160,7 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    /// Check if driver is subscribed to `Store`.
     public func contains(driver: GraphStreamer) -> Bool {
         lock.withLock { drivers.contains(driver) }
     }
