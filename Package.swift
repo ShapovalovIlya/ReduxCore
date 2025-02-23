@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "ReduxSync", targets: ["ReduxSync"])
     ],
     targets: [
+        .target(name: "CoWBox"),
         .target(
             name: "ReduxSync",
             swiftSettings: [
@@ -35,6 +36,7 @@ let package = Package(
                 "ReduxSync",
                 "ReduxStream",
                 "StoreThread",
+                "CoWBox",
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
