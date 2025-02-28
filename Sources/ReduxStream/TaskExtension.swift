@@ -38,6 +38,6 @@ public extension Task where Success == Never, Failure == Never {
             return
         }
         if seconds.isLessThanOrEqualTo(.zero) { return }
-        try await sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+        try await sleep(nanoseconds: UInt64(seconds) * NSEC_PER_SEC)
     }
 }
