@@ -67,11 +67,12 @@ public extension AsyncSequence {
     /// - Parameters:
     ///   - priority: The priority of the task. Pass nil to use the priority from Task.currentPriority.
     ///   - body: A closure that takes an element of the sequence as a parameter.
+    @available(*, unavailable)
     @inlinable
     @discardableResult
     func forEachTask(
         priority: TaskPriority? = nil,
-        _ body: @escaping @Sendable (Element) throws -> Void
+        _ body: sending @escaping (Element) throws -> Void
     ) -> Task<Void, Error> {
         Task(priority: priority) {
             for try await element in self {
@@ -89,7 +90,7 @@ public extension AsyncSequence {
     @discardableResult
     func forEachTask(
         priority: TaskPriority? = nil,
-        _ body: @escaping @Sendable (Element) async throws -> Void
+        _ body: sending @escaping (Element) async throws -> Void
     ) -> Task<Void, Error> {
         Task(priority: priority) {
             for try await element in self {
