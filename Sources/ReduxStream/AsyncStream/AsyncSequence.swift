@@ -94,6 +94,7 @@ public extension AsyncSequence {
     ) -> Task<Void, Error> {
         Task(priority: priority) {
             for try await element in self {
+                try Task.checkCancellation()
                 try await body(element)
             }
         }

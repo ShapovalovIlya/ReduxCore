@@ -20,14 +20,16 @@ public final class StateStreamer<State>: @unchecked Sendable {
     
     //MARK: - deinit
     deinit { continuation.finish() }
-    
+}
+
+public extension StateStreamer {
     //MARK: - Public methods
     
     /// invalidate Streamer.
     ///
     /// When a Streamer is marked as invalidated Store removes it from subscribers
     /// and no longer notifies about the new state.
-    public func invalidate() {
+    func invalidate() {
         lock.withLock { _isActive = false }
     }
     
@@ -35,9 +37,15 @@ public final class StateStreamer<State>: @unchecked Sendable {
     ///
     /// The Store activates the Streamer when you add it as a subscriber.
     /// It unnecessary to activate Streamer manually.
-    public func activate() {
+    func activate() {
         lock.withLock { _isActive = true }
     }
+    
+    /// Finish stream.
+    ///
+    /// Calling this function more than once has no effect. After calling finish,
+    /// the stream enters a terminal state and doesn’t produce any additional elements.
+    func finish() { continuation.finish() }
 }
 
 //MARK: - Equatable

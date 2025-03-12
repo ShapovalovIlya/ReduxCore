@@ -128,10 +128,15 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     /// Subscribe driver (`GraphStreamer` object) to state updates.
     ///
+    /// `Store`  setup `driver.continuation.onTermination` handler to unsubscribe.
+    ///
     /// - Important: `Store` hold strong reference to `GraphStreamer`. Use `uninstall(_:)` method to remove it.
     ///
     /// - Parameter streamer: `GraphStreamer` instance to subscribe
     public func install(_ driver: GraphStreamer) {
+        driver.continuation.onTermination = { [weak self] _ in
+            self?.uninstall(driver)
+        }
         queue.sync {
             driver.activate()
             drivers.insert(driver)
@@ -139,8 +144,20 @@ public final class Store<State, Action>: @unchecked Sendable {
         }
     }
     
+    /// Subscribe drivers (`GraphStreamer` object) to state updates.
+    ///
+    /// `Store`  setup `driver.continuation.onTermination` handler to unsubscribe.
+    ///
+    /// - Important: `Store` hold strong reference to `GraphStreamer`. Use `uninstall(_:)` method to remove it.
+    ///
+    /// - Parameter builder: callback with `ResultBuilder` to collect drivers.
     public func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         let drivers = builder()
+        drivers.forEach { d in
+            d.continuation.onTermination = { [weak self] _ in
+                self?.uninstall(d)
+            }
+        }
         drivers.forEach { $0.activate() }
         queue.sync {
             self.drivers.formUnion(drivers)
