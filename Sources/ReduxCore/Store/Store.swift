@@ -171,7 +171,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     ///
     /// - Parameter driver: `GraphStreamer` instance to remove.
     public func uninstall(_ driver: GraphStreamer) {
-        queue.sync {
+        lock.withLock {
             driver.invalidate()
             self.drivers.remove(driver)
         }
