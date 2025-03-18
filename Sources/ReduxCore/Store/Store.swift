@@ -114,7 +114,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     /// - Returns: return true if streamer was successfully removed, false if streamer was not subscribed.
     @discardableResult
     public func unsubscribe(_ streamer: some Streamer) -> Bool {
-        queue.sync {
+        lock.withLock {
             continuations.removeValue(forKey: streamer.streamerID) != nil
         }
     }
