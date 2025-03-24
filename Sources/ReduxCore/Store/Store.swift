@@ -28,7 +28,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Private properties
     private var drivers = Set<GraphStreamer>()
     private var continuations: [ObjectIdentifier: StreamerContinuation] = .init()
-    private let lock = NSLock()
+//    private let lock = NSLock()
     let reducer: Reducer
     
     //MARK: - init(_:)
@@ -114,14 +114,20 @@ public final class Store<State, Action>: @unchecked Sendable {
     /// - Returns: return true if streamer was successfully removed, false if streamer was not subscribed.
     @discardableResult
     public func unsubscribe(_ streamer: some Streamer) -> Bool {
-        lock.withLock {
+        queue.sync {
             continuations.removeValue(forKey: streamer.streamerID) != nil
         }
+//        lock.withLock {
+//            continuations.removeValue(forKey: streamer.streamerID) != nil
+//        }
     }
         
     /// Check if streamer is subscribed to `Store`.
     public func contains(streamer: some Streamer) -> Bool {
-        lock.withLock { continuations[streamer.streamerID] != nil }
+        queue.sync {
+            continuations[streamer.streamerID] != nil
+        }
+//        lock.withLock { continuations[streamer.streamerID] != nil }
     }
     
     //MARK: - Driver methods
@@ -154,11 +160,11 @@ public final class Store<State, Action>: @unchecked Sendable {
     public func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         let drivers = builder()
         drivers.forEach { d in
+            d.activate()
             d.continuation.onTermination = { [weak self] _ in
                 self?.uninstall(d)
             }
         }
-        drivers.forEach { $0.activate() }
         queue.sync {
             self.drivers.formUnion(drivers)
             drivers.forEach(yield)
@@ -171,15 +177,22 @@ public final class Store<State, Action>: @unchecked Sendable {
     ///
     /// - Parameter driver: `GraphStreamer` instance to remove.
     public func uninstall(_ driver: GraphStreamer) {
-        lock.withLock {
+        queue.async {
             driver.invalidate()
             self.drivers.remove(driver)
         }
+//        lock.withLock {
+//            driver.invalidate()
+//            self.drivers.remove(driver)
+//        }
     }
     
     /// Check if driver is subscribed to `Store`.
     public func contains(driver: GraphStreamer) -> Bool {
-        lock.withLock { drivers.contains(driver) }
+        queue.sync {
+            drivers.contains(driver)
+        }
+//        lock.withLock { drivers.contains(driver) }
     }
     
     /// Dispatch single action
