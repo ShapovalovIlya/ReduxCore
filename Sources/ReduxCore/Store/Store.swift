@@ -28,7 +28,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Private properties
     private var drivers = Set<GraphStreamer>()
     private var continuations: [ObjectIdentifier: StreamerContinuation] = .init()
-//    private let lock = NSLock()
+    
     let reducer: Reducer
     
     //MARK: - init(_:)
@@ -112,14 +112,10 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     /// Remove subscription between `Streamer` and `Store`.
     /// - Returns: return true if streamer was successfully removed, false if streamer was not subscribed.
-    @discardableResult
-    public func unsubscribe(_ streamer: some Streamer) -> Bool {
-        queue.sync {
-            continuations.removeValue(forKey: streamer.streamerID) != nil
+    public func unsubscribe(_ streamer: some Streamer) {
+        queue.async {
+            self.continuations.removeValue(forKey: streamer.streamerID)
         }
-//        lock.withLock {
-//            continuations.removeValue(forKey: streamer.streamerID) != nil
-//        }
     }
         
     /// Check if streamer is subscribed to `Store`.
@@ -127,7 +123,6 @@ public final class Store<State, Action>: @unchecked Sendable {
         queue.sync {
             continuations[streamer.streamerID] != nil
         }
-//        lock.withLock { continuations[streamer.streamerID] != nil }
     }
     
     //MARK: - Driver methods
@@ -181,18 +176,11 @@ public final class Store<State, Action>: @unchecked Sendable {
             driver.invalidate()
             self.drivers.remove(driver)
         }
-//        lock.withLock {
-//            driver.invalidate()
-//            self.drivers.remove(driver)
-//        }
     }
     
     /// Check if driver is subscribed to `Store`.
     public func contains(driver: GraphStreamer) -> Bool {
-        queue.sync {
-            drivers.contains(driver)
-        }
-//        lock.withLock { drivers.contains(driver) }
+        queue.sync { drivers.contains(driver) }
     }
     
     /// Dispatch single action
