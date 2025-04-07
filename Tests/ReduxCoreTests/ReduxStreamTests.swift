@@ -6,7 +6,46 @@
 //
 
 import XCTest
+import Testing
 @testable import ReduxStream
+
+struct ReduxStreamTests_new {
+    @Test func throttleSequence() async throws {
+        let sut = StateStreamer<Date>()
+        let interval = 0.3
+        
+        let task = Task {
+            var intervals = [Date]()
+            
+            for await date in sut.state.throttle(for: interval) {
+                intervals.append(date)
+            }
+            
+            return intervals
+        }
+        
+        for _ in 0...10 {
+            try await Task.sleep(for: .seconds(Double.random(in: 0.1...0.4)))
+            sut.continuation.yield(Date())
+        }
+        sut.continuation.finish()
+                
+        var events = await task.value
+        var intervals = [TimeInterval]()
+        
+        let start = events.removeFirst()
+        
+        _ = events
+            .reduce(start) { prev, next in
+                intervals.append(prev.distance(to: next))
+                return next
+            }
+        
+        let least = try #require(intervals.min())
+        
+        #expect(least >= interval)
+    }
+}
 
 final class ReduxStreamTests: XCTestCase {
     private var sut: StateStreamer<Int>!

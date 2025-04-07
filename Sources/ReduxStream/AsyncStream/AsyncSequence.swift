@@ -18,6 +18,7 @@ public extension AsyncSequence where Element: Equatable {
 }
 
 public extension AsyncSequence {
+    //MARK: - Custom Sequence
     /// Creates an asynchronous sequence that omits repeated elements by testing them with a predicate.
     func removeDuplicates(
         by predicate: @escaping @Sendable (Element, Element) async -> Bool
@@ -40,6 +41,12 @@ public extension AsyncSequence {
         ReduxStream.WithUnretained(base: self, unretained: object)
     }
     
+    /// Create a rate-limited `AsyncSequence` by emitting values at most every specified interval.
+    func throttle(for interval: TimeInterval) -> ReduxStream.Throttle<Self> {
+        ReduxStream.Throttle(base: self, interval: interval)
+    }
+    
+    //MARK: - Methods
     /// Calls the given closure on each element in the async sequence in the same order as a `for-in` loop.
     /// - Parameter body: A closure that takes an element of the sequence as a parameter.
     @inlinable

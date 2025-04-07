@@ -44,10 +44,7 @@ public extension ReduxStream.RemoveDuplicates {
         
         //MARK: - init(_:)
         @usableFromInline
-        init(
-            iterator: Base.AsyncIterator,
-            predicate: @escaping Predicate
-        ) {
+        init(iterator: Base.AsyncIterator, predicate: @escaping Predicate) {
             self.iterator = iterator
             self.predicate = predicate
         }
@@ -55,13 +52,13 @@ public extension ReduxStream.RemoveDuplicates {
         //MARK: - Public methods
         @inlinable
         public mutating func next() async rethrows -> Element? {
-            if Task.isCancelled { return nil }
-            
             guard let last else {
                 last = try await iterator.next()
+                if Task.isCancelled { return nil }
                 return last
             }
             while let element = try await iterator.next() {
+                if Task.isCancelled { return nil }
                 if await predicate(last, element) { continue }
                 self.last = element
                 return element
