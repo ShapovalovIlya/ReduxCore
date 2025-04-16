@@ -17,6 +17,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "CoWBox"),
+        .target(name: "SequenceFX"),
         .target(
             name: "ReduxSync",
             swiftSettings: [
@@ -37,6 +38,7 @@ let package = Package(
                 "ReduxStream",
                 "StoreThread",
                 "CoWBox",
+                "SequenceFX",
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
