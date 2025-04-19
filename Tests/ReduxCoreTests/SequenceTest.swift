@@ -38,7 +38,8 @@ struct SequenceTest {
     }
     
     @Test func lazyRemoveDuplicates() async throws {
-        let sut = [1,2,3,1,2,3].lazy.removedDuplicates()
+        let sut: LazyRemoveDuplicatesSequence = [1,2,3,1,2,3].lazy
+            .removedDuplicates()
         
         #expect(sut.run() == [1,2,3])
     }

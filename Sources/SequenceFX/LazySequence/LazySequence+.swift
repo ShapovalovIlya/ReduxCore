@@ -11,7 +11,7 @@ public extension LazySequenceProtocol {
     @inlinable func run() -> [Element] { Array(self) }
 }
 
-public extension LazySequence {
+public extension LazySequenceProtocol {
     
     @inlinable
     func removedDuplicates<T: Hashable>(
@@ -21,7 +21,7 @@ public extension LazySequence {
     }
 }
 
-public extension LazySequence where Element: Hashable {
+public extension LazySequenceProtocol where Element: Hashable {
     @inlinable
     func removedDuplicates() -> LazyRemoveDuplicatesSequence<Self, Element> {
         LazyRemoveDuplicatesSequence(self, identityOf: \.self)
