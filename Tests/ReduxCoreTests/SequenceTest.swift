@@ -30,4 +30,16 @@ struct SequenceTest {
         }
         #expect(sut.last?.count == 5)
     }
+    
+    @Test func removeDuplicates() async throws {
+        let sut = [1,1,2,2,3,3].removedDuplicates()
+        
+        #expect(sut == [1,2,3])
+    }
+    
+    @Test func lazyRemoveDuplicates() async throws {
+        let sut = [1,2,3,1,2,3].lazy.removedDuplicates()
+        
+        #expect(sut.run() == [1,2,3])
+    }
 }

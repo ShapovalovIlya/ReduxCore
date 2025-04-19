@@ -9,7 +9,7 @@ import Foundation
 
 public extension Collection {
     
-    @inlinable func chunked(by size: Int) -> [Self.SubSequence] {
+    @inlinable func chunked(by size: Int) -> [SubSequence] {
         stride(from: .zero, to: count, by: size)
             .lazy
             .map { offset -> Range<Self.Index> in
@@ -18,6 +18,26 @@ public extension Collection {
                 return fromIndex..<toIndex
             }
             .map { self[$0] }
+    }
+    
+    @inlinable
+    func removedDuplicates<T: Hashable>(
+        using identityOf: (Element) throws -> T
+    ) rethrows -> [Element] {
+        var identities = Set<T>(minimumCapacity: count)
+        return try filter { element in
+            try identities.insert(identityOf(element)).inserted
+        }
+    }
+}
+
+public extension Collection where Element: Hashable {
+    @inlinable
+    func removedDuplicates() -> [Element] {
+        var identities = Set<Element>(minimumCapacity: count)
+        return filter { element in
+            identities.insert(element).inserted
+        }
     }
 }
 
