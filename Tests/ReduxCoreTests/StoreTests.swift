@@ -41,6 +41,10 @@ struct StoreTests {
         streamer2.continuation.finish()
         
         #expect(sut.contains(streamer: streamer1) == false)
+        #expect(sut.contains(streamer: streamer2) == true)
+        
+        sut.dispatch(1)
+        
         #expect(sut.contains(streamer: streamer2) == false)
     }
     
@@ -201,7 +205,7 @@ struct StoreTests {
         
         sut.subscribe(streamer)
         
-        let task = Task {
+        let task = Task { @MainActor in
             for await value in streamer.state {
                 arr.append(value.state)
             }
@@ -213,7 +217,6 @@ struct StoreTests {
         await task.value
         #expect(arr == [0, 3])
     }
-    
 }
 
 private extension StoreTests {

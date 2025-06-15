@@ -9,16 +9,22 @@ import Foundation
 @_exported import class Combine.AnyCancellable
 
 public extension Task {
+    
+    /// Wraps ``_Concurrency/Task`` in to `AnyCancellable` object.
+    @inlinable var asCancelable: AnyCancellable {
+        AnyCancellable(self.cancel)
+    }
+    
     /// Stores this type-erasing cancellable instance in the specified collection.
     @inlinable
     func store(in array: inout Array<AnyCancellable>) {
-        array.append(AnyCancellable(self.cancel))
+        array.append(self.asCancelable)
     }
     
     /// Stores this type-erasing cancellable instance in the specified set.
     @inlinable
     func store(in set: inout Set<AnyCancellable>) {
-        set.insert(AnyCancellable(self.cancel))
+        set.insert(self.asCancelable)
     }
 }
 

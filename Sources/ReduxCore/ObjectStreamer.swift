@@ -13,6 +13,7 @@ public protocol ObjectStreamer<State>: AnyObject, Sendable, Hashable {
 
     var streamerID: ObjectIdentifier { get }
     var continuation: Stream.Continuation { get }
+    
     static func makeStateStream(
         _ policy: Stream.Continuation.BufferingPolicy
     ) -> (stream: Stream, continuation: Stream.Continuation)

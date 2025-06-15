@@ -9,11 +9,14 @@ import Foundation
 import ReduxStream
 import StoreThread
 
+/// Store
 @dynamicMemberLookup
 public final class Store<State, Action>: @unchecked Sendable {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
     public typealias Reducer = (inout State, Action) -> Void
+    
+    /// StateStreamer object that produce sequence of GraphStore models
     public typealias GraphStreamer = StateStreamer<GraphStore>
     
     /// `ObjectStreamer` adopter that can receive async stream of `Graph<State, Action>`
@@ -32,7 +35,10 @@ public final class Store<State, Action>: @unchecked Sendable {
     let reducer: Reducer
     
     //MARK: - init(_:)
-    public init(initial state: State, reducer: @escaping Reducer) {
+    public init(
+        initial state: State,
+        reducer: @escaping Reducer
+    ) {
         self.state = state
         self.reducer = reducer
     }
@@ -50,6 +56,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     @available(*, deprecated)
     private(set) var observers = Set<GraphObserver>()
     
+    //MARK: - Internal methods
     @available(*, deprecated)
     func notify(_ observer: GraphObserver) {
         observer.queue.async { [graph] in
@@ -61,9 +68,25 @@ public final class Store<State, Action>: @unchecked Sendable {
             }
         }
     }
-
+    
+    @Sendable
+    @usableFromInline
+    func dispatcher(_ effect: consuming GraphStore.Effect) {
+        queue.sync {
+            state = effect.reduce(state, using: reducer)
+            drivers.forEach(yield)
+            continuations.forEach(yield)
+            
+            // deprecated support
+            observers.forEach(notify)
+        }
+    }
+}
+ 
+//MARK: - Deprecated interfaces
+public extension Store {
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
-    public func subscribe(_ observer: GraphObserver) {
+    func subscribe(_ observer: GraphObserver) {
         queue.sync {
             observers.insert(observer)
             notify(observer)
@@ -71,7 +94,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     }
     
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
-    public func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
+    func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
         queue.sync {
             self.observers.formUnion(observers)
@@ -81,44 +104,42 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     
     @available(*, deprecated, renamed: "installAll")
-    public func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
-        let streamers = builder()
-        streamers.forEach { $0.activate() }
-        queue.sync {
+    func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
+        queue.sync { [streamers = builder()] in
             self.drivers.formUnion(streamers)
             streamers.forEach(yield)
         }
     }
+}
+
+//MARK: - Public Methods
+public extension Store {
     
     //MARK: - Streamer methods
     
-    /// Create subscription between `Streamer` and `Store`.
+    /// Create subscription between ``Store/Streamer`` and ``Store``.
     ///
-    /// `Store` hold `Streamer`'s continuation to yield new state, and setup `.onTermination` handler to unsubscribe.
+    /// - Important: `Store` doesn't hold strong reference to ``Store/Streamer``.
+    ///              If you need this behaviour, use ``Store/install(_:)`` method.
     ///
-    /// - Important: `Store` doesn't hold strong reference to `Streamer`.
-    ///              If you need this behaviour, use `install(_:)` method.
-    ///
-    /// - Parameter streamer: `Streamer` instance to subscribe
-    public func subscribe(_ streamer: some Streamer) {
-        streamer.continuation.onTermination = { [weak self] _ in
-            self?.unsubscribe(streamer)
-        }
+    /// - Parameter streamer: ``Store/Streamer`` instance to subscribe
+    func subscribe(_ streamer: some Streamer) {
         queue.sync {
-            continuations[streamer.streamerID] = streamer.continuation
-            streamer.continuation.yield(graph)
+            continuations.updateValue(streamer.continuation, forKey: streamer.streamerID)
+            yield((streamer.streamerID, streamer.continuation))
         }
     }
     
-    /// Remove subscription between `Streamer` and `Store`.
-    public func unsubscribe(_ streamer: some Streamer) {
-        queue.async {
-            self.continuations.removeValue(forKey: streamer.streamerID)
+    /// Remove subscription between ``Store/Streamer`` and ``Store``.
+    @discardableResult
+    func unsubscribe(_ streamer: some Streamer) -> Bool {
+        queue.sync {
+            continuations.removeValue(forKey: streamer.streamerID) != nil
         }
     }
         
     /// Check if streamer is subscribed to `Store`.
-    public func contains(streamer: some Streamer) -> Bool {
+    func contains(streamer: some Streamer) -> Bool {
         queue.sync {
             continuations[streamer.streamerID] != nil
         }
@@ -126,19 +147,14 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     //MARK: - Driver methods
     
-    /// Subscribe driver (`GraphStreamer` object) to state updates.
+    /// Subscribe driver (``Store/GraphStreamer`` object) to state updates.
     ///
-    /// `Store`  setup `driver.continuation.onTermination` handler to unsubscribe.
-    ///
-    /// - Important: `Store` hold strong reference to `GraphStreamer`. Use `uninstall(_:)` method to remove it.
+    /// - Important: `Store` hold strong reference to ``Store/GraphStreamer``.
+    ///              Use ``Store/uninstall(_:)`` method to remove it.
     ///
     /// - Parameter streamer: `GraphStreamer` instance to subscribe
-    public func install(_ driver: GraphStreamer) {
-        driver.continuation.onTermination = { [weak self] _ in
-            self?.uninstall(driver)
-        }
+    func install(_ driver: GraphStreamer) {
         queue.sync {
-            driver.activate()
             drivers.insert(driver)
             yield(driver)
         }
@@ -146,78 +162,70 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     /// Subscribe drivers (`GraphStreamer` object) to state updates.
     ///
-    /// `Store`  setup `driver.continuation.onTermination` handler to unsubscribe.
-    ///
-    /// - Important: `Store` hold strong reference to `GraphStreamer`. Use `uninstall(_:)` method to remove it.
+    /// - Important: `Store` hold strong reference to ``Store/GraphStreamer``.
+    /// Use ``Store/uninstall(_:)`` method to remove it.
     ///
     /// - Parameter builder: callback with `ResultBuilder` to collect drivers.
-    public func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
-        let drivers = builder()
-        drivers.forEach { d in
-            d.activate()
-            d.continuation.onTermination = { [weak self] _ in
-                self?.uninstall(d)
-            }
-        }
-        queue.sync {
+    func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
+        queue.sync { [drivers = builder()] in
             self.drivers.formUnion(drivers)
             drivers.forEach(yield)
         }
     }
     
-    /// Remove `GraphStreamer` from `Store`'s subscription.
+    /// Remove ``Store/GraphStreamer`` from `Store`'s subscription.
     ///
-    /// After uninstalling, `Store` no longer hold strong reference to `GraphStreamer`
+    /// After uninstalling, `Store` no longer hold strong reference to ``Store/GraphStreamer``
     ///
-    /// - Parameter driver: `GraphStreamer` instance to remove.
-    public func uninstall(_ driver: GraphStreamer) {
-        queue.async {
-            driver.invalidate()
-            self.drivers.remove(driver)
-        }
+    /// - Parameter driver: ``Store/GraphStreamer`` instance to remove.
+    @discardableResult
+    func uninstall(_ driver: GraphStreamer) -> GraphStreamer? {
+        queue.sync { drivers.remove(driver) }
     }
     
     /// Check if driver is subscribed to `Store`.
-    public func contains(driver: GraphStreamer) -> Bool {
+    func contains(driver: GraphStreamer) -> Bool {
         queue.sync { drivers.contains(driver) }
     }
     
     /// Dispatch single action
     @inlinable
-    public func dispatch(_ action: Action) {
+    func dispatch(_ action: Action) {
         dispatcher(.single(action))
     }
     
     /// Dispatch sequence of actions
     @inlinable
-    public func dispatch(contentsOf s: some Sequence<Action>) {
+    func dispatch(contentsOf s: some Sequence<Action>) {
         dispatcher(.multiple(Array(s)))
-    }
-    
-    //MARK: - Internal methods
-    @Sendable
-    @usableFromInline
-    func dispatcher(_ effect: consuming GraphStore.Effect) {
-        queue.sync {
-            state = effect.reduce(state, using: reducer)
-            drivers.forEach(yield)
-            continuations.forEach { _, continuation in
-                continuation.yield(graph)
-            }
-            // deprecated support
-            observers.forEach(notify)
-        }
     }
 }
 
 //MARK: - Private methods
 private extension Store {
+    func yield(_ element: [ObjectIdentifier : StreamerContinuation].Element) {
+        switch element.value.yield(graph) {
+        case .terminated:
+            continuations.removeValue(forKey: element.key)
+            
+        case .dropped, .enqueued:
+            break
+            
+        @unknown default:
+            assertionFailure()
+        }
+    }
     
     func yield(_ streamer: GraphStreamer) {
-        if streamer.isActive {
-            streamer.continuation.yield(graph)
-            return
+        switch streamer.continuation.yield(graph) {
+        case .terminated:
+            drivers.remove(streamer)
+            
+        case .dropped, .enqueued:
+            break
+            
+        @unknown default:
+            assertionFailure()
         }
-        drivers.remove(streamer)
     }
 }

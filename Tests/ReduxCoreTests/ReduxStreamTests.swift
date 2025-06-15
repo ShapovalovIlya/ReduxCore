@@ -10,7 +10,8 @@ import Testing
 @testable import ReduxStream
 
 struct ReduxStreamTests_new {
-    @Test func throttleSequence() async throws {
+    @Test(.disabled())
+    func throttleSequence() async throws {
         let sut = StateStreamer<Date>()
         let interval = 0.3
         

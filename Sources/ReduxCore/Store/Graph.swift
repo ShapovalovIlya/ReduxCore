@@ -7,7 +7,9 @@
 
 import Foundation
 
-public struct Graph<State, Action>: @unchecked Sendable {
+public struct Graph<State, Action>: Sendable {
+    public typealias Dispatcher = @Sendable (consuming Effect) -> Void
+    
     @usableFromInline let dispatcher: Dispatcher
     public let state: State
 
@@ -39,8 +41,6 @@ public struct Graph<State, Action>: @unchecked Sendable {
 }
 
 public extension Graph {
-    typealias Dispatcher = @Sendable (consuming Effect) -> Void
-    
     //MARK: - Effect
     enum Effect {
         case single(Action)
@@ -52,13 +52,13 @@ public extension Graph {
             using reducer: (inout State, Action) -> Void
         ) -> State {
             switch self {
-            case .single(let action):
+            case let .single(action):
                 var state = state
                 reducer(&state, action)
                 return state
                 
-            case .multiple(let array):
-                return array.reduce(into: state, reducer)
+            case let .multiple(actions):
+                return actions.reduce(into: state, reducer)
             }
         }
     }
