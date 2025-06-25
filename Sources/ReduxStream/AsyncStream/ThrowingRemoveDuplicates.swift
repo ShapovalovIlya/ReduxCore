@@ -19,7 +19,7 @@ public extension ReduxStream {
         @usableFromInline let predicate: Predicate
         
         //MARK: - init(_:)
-        init(
+        @inlinable init(
             _ base: Base,
             predicate: @escaping Predicate
         ) {

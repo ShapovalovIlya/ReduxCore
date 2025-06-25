@@ -21,7 +21,7 @@ public extension ReduxStream {
         @usableFromInline weak var unretained: Object?
         
         //MARK: - init(_:)
-        init(
+        @inlinable init(
             base: Base,
             unretained: Object
         ) {

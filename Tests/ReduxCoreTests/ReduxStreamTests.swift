@@ -120,12 +120,12 @@ final class ReduxStreamTests: XCTestCase {
         sut.continuation.yield(1)
         sut.continuation.yield(1)
         sut.continuation.finish()
-
+        
         try await task.value
         XCTAssertEqual(arr, [1,1,1])
     }
     
-    func test_forEachTaskAsync() async {
+    func test_forEachTaskAsync() async throws {
         let task = sut.state.forEachTask(asyncAdd)
         
         sut.continuation.yield(1)
@@ -133,7 +133,7 @@ final class ReduxStreamTests: XCTestCase {
         sut.continuation.yield(1)
         sut.continuation.finish()
 
-        try? await task.value
+        try await task.value
         XCTAssertEqual(arr, [1,1,1])
     }
     

@@ -15,6 +15,11 @@ public extension ReduxStream {
         @usableFromInline let base: Base
         @usableFromInline let interval: TimeInterval
         
+        @inlinable init(base: Base, interval: TimeInterval) {
+            self.base = base
+            self.interval = interval
+        }
+        
         @inlinable
         public func makeAsyncIterator() -> Iterator {
             Iterator(interval: interval, base: base.makeAsyncIterator())
