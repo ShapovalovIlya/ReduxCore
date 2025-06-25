@@ -9,9 +9,41 @@ import Foundation
 import ReduxStream
 import StoreThread
 
-/// Store
+/// A thread-safe, observable state container for managing application state and dispatching actions.
+///
+/// The `Store` class is a generic, thread-safe container that holds application state and provides mechanisms
+/// for observing state changes, dispatching actions, and managing subscriptions. It is designed to be the
+/// central point of state management in an application, following principles similar to Redux or The Composable Architecture.
+///
+/// `Store` supports both strong and weak subscription models:
+/// - **Drivers** (`GraphStreamer`): Strongly held subscribers that receive state updates until explicitly uninstalled.
+/// - **Streamers** (`ObjectStreamer`): Weakly held subscribers that receive state updates as long as they are retained elsewhere.
+///
+/// State updates are performed synchronously on a dedicated dispatch queue to ensure thread safety. Actions are
+/// dispatched to the store, which applies them to the current state using a reducer function. After each state
+/// update, all subscribers are notified with the new state.
+///
+/// ### Usage
+/// ```swift
+/// let store = Store<MyState, MyAction>(initial: MyState(), reducer: myReducer)
+/// store.dispatch(.increment)
+/// ```
+///
+/// - Important: Deprecated observer APIs are retained for backward compatibility but will be removed in future versions. Use `StateStreamer` or `ObjectStreamer` for new code.
+///
+/// - Parameters:
+///   - State: The type representing the state managed by the store.
+///   - Action: The type representing actions that can be dispatched to the store.
+///
+/// ### Key Features:
+/// - Thread-safe state access and mutation
+/// - Synchronous and asynchronous state streaming
+/// - Strong and weak subscription models
+/// - Action dispatching with reducer
+/// - Dynamic member lookup for convenient state access
+///
 @dynamicMemberLookup
-public final class Store<State, Action>: @unchecked Sendable {
+public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     //MARK: - Public properties
     public typealias GraphStore = Graph<State, Action>
     public typealias Reducer = (inout State, Action) -> Void
@@ -25,7 +57,8 @@ public final class Store<State, Action>: @unchecked Sendable {
     
     public let queue = DispatchQueue(label: "Store queue", qos: .userInteractive)
     
-    private(set) var state: State
+    @Published private(set) var state: State
+    
     public var graph: GraphStore { GraphStore(state, dispatcher: dispatcher) }
     
     //MARK: - Private properties
@@ -79,35 +112,6 @@ public final class Store<State, Action>: @unchecked Sendable {
             
             // deprecated support
             observers.forEach(notify)
-        }
-    }
-}
- 
-//MARK: - Deprecated interfaces
-public extension Store {
-    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
-    func subscribe(_ observer: GraphObserver) {
-        queue.sync {
-            observers.insert(observer)
-            notify(observer)
-        }
-    }
-    
-    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
-    func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
-        let observers = builder()
-        queue.sync {
-            self.observers.formUnion(observers)
-            observers.forEach(notify)
-        }
-    }
-    
-    
-    @available(*, deprecated, renamed: "installAll")
-    func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
-        queue.sync { [streamers = builder()] in
-            self.drivers.formUnion(streamers)
-            streamers.forEach(yield)
         }
     }
 }
@@ -226,6 +230,35 @@ private extension Store {
             
         @unknown default:
             assertionFailure()
+        }
+    }
+}
+
+//MARK: - Deprecated interfaces
+public extension Store {
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
+    func subscribe(_ observer: GraphObserver) {
+        queue.sync {
+            observers.insert(observer)
+            notify(observer)
+        }
+    }
+    
+    @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
+    func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
+        let observers = builder()
+        queue.sync {
+            self.observers.formUnion(observers)
+            observers.forEach(notify)
+        }
+    }
+    
+    
+    @available(*, deprecated, renamed: "installAll")
+    func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
+        queue.sync { [streamers = builder()] in
+            self.drivers.formUnion(streamers)
+            streamers.forEach(yield)
         }
     }
 }

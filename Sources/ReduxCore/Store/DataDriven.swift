@@ -29,6 +29,7 @@ public extension Action {
         hasher.combine(String(reflecting: self))
     }
     
+    @inlinable
     @discardableResult
     func dumped(maxDepth: Int = .max, maxItems: Int = .max) -> Self {
         dump(self, name: "Action", maxDepth: maxDepth, maxItems: maxItems)
@@ -56,6 +57,7 @@ public protocol DataDriven {
 
 public extension DataDriven {
     
+    @inlinable
     @discardableResult
     func dumped(maxDepth: Int = .max, maxItems: Int = .max) -> Self {
         dump(self, name: "DataDriven", maxDepth: maxDepth, maxItems: maxItems)
