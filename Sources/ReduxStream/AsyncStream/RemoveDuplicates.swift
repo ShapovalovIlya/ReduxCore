@@ -10,7 +10,7 @@ public extension ReduxStream {
     /// An asynchronous sequence that omits repeated elements by testing them with a predicate.
     struct RemoveDuplicates<Base: AsyncSequence>: AsyncSequence {
         public typealias Element = Base.Element
-        public typealias Predicate = @Sendable (Element, Element) async -> Bool
+        public typealias Predicate = @Sendable (Element, Element) -> Bool
         
         //MARK: - Properties
         @usableFromInline let base: Base
@@ -54,12 +54,12 @@ public extension ReduxStream.RemoveDuplicates {
         public mutating func next() async rethrows -> Element? {
             guard let last else {
                 last = try await iterator.next()
-                if Task.isCancelled { return nil }
+                try Task.checkCancellation()
                 return last
             }
             while let element = try await iterator.next() {
-                if Task.isCancelled { return nil }
-                if await predicate(last, element) { continue }
+                try Task.checkCancellation()
+                if predicate(last, element) { continue }
                 self.last = element
                 return element
             }

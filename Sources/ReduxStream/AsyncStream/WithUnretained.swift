@@ -60,10 +60,12 @@ public extension ReduxStream.WithUnretained {
         
         //MARK: - Public methods
         @inlinable
-        public mutating func next() async throws -> (Object, Base.Element)? {        
+        public mutating func next() async throws -> Element? {
             while let element = try await iterator.next() {
-                if Task.isCancelled { return nil }
-                guard let unretained else { return nil }
+                try Task.checkCancellation()
+                guard let unretained else {
+                    return nil
+                }
                 return (unretained, element)
             }
             return nil
