@@ -73,7 +73,7 @@ public final class Store<State, Action>: @unchecked Sendable {
     @usableFromInline
     func dispatcher(_ effect: consuming GraphStore.Effect) {
         queue.sync {
-            state = effect.reduce(state, using: reducer)
+            state = autoreleasepool { effect.reduce(state, using: reducer) }
             drivers.forEach(yield)
             continuations.forEach(yield)
             
