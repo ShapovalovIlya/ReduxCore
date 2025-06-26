@@ -68,15 +68,15 @@ final class ReduxStreamTests: XCTestCase {
     
     func test_streamerStream() async {
         let task = Task {
-            for await val in sut.state {
+            for await val in sut {
                 arr.add(val)
             }
         }
         
-        sut.continuation.yield(0)
-        sut.continuation.yield(1)
-        sut.continuation.yield(2)
-        sut.continuation.finish()
+        sut.yield(0)
+        sut.yield(1)
+        sut.yield(2)
+        sut.finish()
         
         await task.value
         XCTAssertEqual(arr, [0,1,2])
@@ -84,15 +84,15 @@ final class ReduxStreamTests: XCTestCase {
     
     func test_streamerRemoveDuplicates() async {
         let task = Task {
-            for await val in sut.state.removeDuplicates() {
+            for await val in sut.removeDuplicates() {
                 arr.add(val)
             }
         }
         
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.finish()
+        sut.yield(1)
+        sut.yield(1)
+        sut.yield(1)
+        sut.finish()
         
         await task.value
         XCTAssertEqual(arr, [1])
@@ -100,38 +100,37 @@ final class ReduxStreamTests: XCTestCase {
     
     func test_streamerForEach() async {
         let task = Task {
-            await sut.state
-                .forEach(arr.add(_:))
+            await sut.forEach(arr.add(_:))
         }
         
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.finish()
+        sut.yield(1)
+        sut.yield(1)
+        sut.yield(1)
+        sut.finish()
         
         await task.value
         XCTAssertEqual(arr, [1,1,1])
     }
     
     func test_forEachTask() async throws {
-        let task = sut.state.forEachTask(arr.add)
+        let task = sut.forEachTask(arr.add)
         
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.finish()
+        sut.yield(1)
+        sut.yield(1)
+        sut.yield(1)
+        sut.finish()
         
         try await task.value
         XCTAssertEqual(arr, [1,1,1])
     }
     
     func test_forEachTaskAsync() async throws {
-        let task = sut.state.forEachTask(asyncAdd)
+        let task = sut.forEachTask(asyncAdd)
         
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.yield(1)
-        sut.continuation.finish()
+        sut.yield(1)
+        sut.yield(1)
+        sut.yield(1)
+        sut.finish()
 
         try await task.value
         XCTAssertEqual(arr, [1,1,1])

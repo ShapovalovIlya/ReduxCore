@@ -35,7 +35,7 @@ import Foundation
 /// - Note: The dispatcher is a closure that sends actions to the underlying store. The `Graph` itself does not mutate state directly.
 ///
 public struct Graph<State, Action>: Sendable {
-    public typealias Dispatcher = @Sendable (consuming Effect) -> Void
+    @usableFromInline typealias Dispatcher = @Sendable (consuming Effect) -> Void
     
     @usableFromInline let dispatcher: Dispatcher
     

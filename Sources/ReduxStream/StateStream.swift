@@ -9,14 +9,18 @@ import Foundation
 
 /// An asynchronous, thread-safe streamer for broadcasting state updates to multiple consumers.
 ///
-/// `StateStreamer` provides an `AsyncStream`-based mechanism for emitting state values over time.
-/// It is designed to be used as a driver or observer in state management architectures, allowing
-/// consumers to asynchronously receive updates as the state changes. The buffering policy for the stream
-/// can be customized during initialization.
+/// `StateStreamer` is a generic class that provides an `AsyncStream`-based mechanism for emitting state values over time.
+/// It is designed to be used in state management architectures, such as Redux-like stores, where you need to asynchronously
+/// observe and react to state changes.
 ///
 /// The streamer exposes both the `AsyncStream<State>` for consumption and its associated `Continuation`
-/// for yielding new state values. When the `StateStreamer` is deinitialized or `finish()` is called,
-/// the stream is automatically finished, notifying all consumers of completion.
+/// for yielding new state values. It also conforms to `AsyncSequence`, allowing you to use it directly in
+/// asynchronous for-await-in loops.
+///
+/// The buffering policy for the stream can be customized during initialization, enabling control over how many state values
+/// are buffered if there are no active consumers at the time values are yielded.
+///
+/// When the `StateStreamer` is deinitialized or `finish()` is called, the stream is automatically finished, notifying all consumers of completion.
 ///
 /// ### Key Features
 /// - Asynchronous state streaming using `AsyncStream`
@@ -27,20 +31,21 @@ import Foundation
 /// ```swift
 /// let streamer = StateStreamer<MyState>()
 /// Task {
-///     for await state in streamer.state {
+///     for await state in streamer {
 ///         print("Received state update: \(state)")
 ///     }
 /// }
 /// // To emit a new state:
-/// streamer.continuation.yield(newState)
+/// streamer.yield(newState)
 /// // To finish the stream:
 /// streamer.finish()
 /// ```
 ///
 /// - Warning: Deprecated APIs (`isActive`, `activate()`, `invalidate()`) are retained for backward compatibility and should not be used in new code.
 ///
-public final class StateStreamer<State>: @unchecked Sendable {
-    private let lock = NSLock()
+public final class StateStreamer<State>: @unchecked Sendable, AsyncSequence {
+    public typealias AsyncIterator = AsyncStream<State>.Iterator
+    
     private var _isActive = false
     
     //MARK: - Public properties
@@ -109,14 +114,42 @@ public final class StateStreamer<State>: @unchecked Sendable {
     ///
     @inlinable
     public init(buffering: AsyncStream<State>.Continuation.BufferingPolicy = .unbounded) {
-        let (state, continuation) = AsyncStream.newStream(of: State.self, bufferingPolicy: buffering)
-        self.state = state
-        self.continuation = continuation
+        (self.state, self.continuation) = AsyncStream.newStream(of: State.self, bufferingPolicy: buffering)
     }
     
     //MARK: - deinit
     deinit {
         continuation.finish()
+    }
+    
+    //MARK: - Public methods
+    
+    /// Yields a new state value to all consumers of the asynchronous stream.
+    ///
+    /// This method emits the provided state value to the `state` stream, making it available to all active and future
+    /// consumers. The result indicates whether the value was successfully enqueued, dropped, or if the stream has already
+    /// been terminated.
+    ///
+    /// - Parameter state: The new state value to emit to the stream.
+    /// - Returns: An `AsyncStream<State>.Continuation.YieldResult` indicating the outcome of the yield operation:
+    ///   - `.enqueued`: The value was successfully enqueued for delivery to consumers.
+    ///   - `.dropped`: The value was dropped due to buffering policy or lack of consumers.
+    ///   - `.terminated`: The stream has already been finished and cannot accept new values.
+    ///
+    /// ### Example:
+    /// ```swift
+    /// let result = streamer.yield(newState)
+    /// if result == .enqueued {
+    ///     print("State update delivered to consumers.")
+    /// }
+    /// ```
+    ///
+    /// - Note: After the stream is finished (via `finish()` or deinitialization), further calls to `yield(_:)` will return `.terminated`.
+    ///
+    @inlinable
+    @discardableResult
+    public func yield(_ state: sending State) -> AsyncStream<State>.Continuation.YieldResult {
+        continuation.yield(state)
     }
     
     /// Finishes the asynchronous state stream, signaling completion to all consumers.
@@ -139,12 +172,17 @@ public final class StateStreamer<State>: @unchecked Sendable {
     public func finish() {
         continuation.finish()
     }
+    
+    @inlinable
+    public func makeAsyncIterator() -> AsyncIterator {
+        state.makeAsyncIterator()
+    }
 }
 
 //MARK: - Deprecated
 public extension StateStreamer {
     @available(*, deprecated, message: "Doesn't used anymore")
-    var isActive: Bool { lock.withLock { _isActive } }
+    var isActive: Bool { _isActive }
     
     /// invalidate Streamer.
     ///
@@ -152,7 +190,7 @@ public extension StateStreamer {
     /// and no longer notifies about the new state.
     @available(*, deprecated, message: "Doesn't used anymore")
     func invalidate() {
-        lock.withLock { _isActive = false }
+        _isActive = false
     }
     
     /// Activate Streamer.
@@ -161,7 +199,7 @@ public extension StateStreamer {
     /// It unnecessary to activate Streamer manually.
     @available(*, deprecated, message: "Doesn't used anymore")
     func activate() {
-        lock.withLock { _isActive = true }
+        _isActive = true
     }
     
 }
