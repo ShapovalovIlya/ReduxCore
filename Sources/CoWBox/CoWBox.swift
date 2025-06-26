@@ -30,7 +30,7 @@ public struct CoWBox<Wrapped>: @unchecked Sendable, Identifiable {
 
 public extension CoWBox {
     /// Instance of the wrapped value.
-    @inlinable var unfolded: Wrapped { storage.wrapped }
+    @inlinable var fold: Wrapped { storage.wrapped }
     
     @inlinable var id: ObjectIdentifier { ObjectIdentifier(storage) }
     

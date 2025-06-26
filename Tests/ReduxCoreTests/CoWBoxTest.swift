@@ -26,7 +26,7 @@ struct CoWBoxTest {
     @Test func unfolded() async throws {
         let sut = CoWBox(1)
         
-        #expect(sut.unfolded == 1)
+        #expect(sut.fold == 1)
     }
     
     @Test func equatable() async throws {

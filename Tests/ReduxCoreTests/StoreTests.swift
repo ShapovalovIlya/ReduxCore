@@ -11,7 +11,7 @@ import ReduxCore
 
 struct StoreTests {
     typealias Sut = Store<Int, Int>
-    typealias SutGraph = Sut.GraphStore
+    typealias SutGraph = Sut.StoreGraph
     
     @Test func storeDrivers() async throws {
         let sut = makeSUT()

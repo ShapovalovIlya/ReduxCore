@@ -51,11 +51,11 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     /// A type alias representing the graph abstraction of the store's current state and dispatcher.
     ///
-    /// `GraphStore` is a convenience alias for `Graph<State, Action>`, encapsulating both the current state
+    /// `StoreGraph` is a convenience alias for `Graph<State, Action>`, encapsulating both the current state
     /// and a dispatcher for sending actions. This abstraction allows you to pass around a value type that
     /// provides read-only access to the state and the ability to dispatch actions, without exposing the full store.
     ///
-    /// - Note: Use `GraphStore` when you want to provide child components or views with access to the current state
+    /// - Note: Use `StoreGraph` when you want to provide child components or views with access to the current state
     ///   and dispatching capabilities in a type-safe and encapsulated manner.
     ///
     /// ### Example:
@@ -65,7 +65,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// graph.dispatch(.increment) // Dispatch an action
     /// ```
     ///
-    public typealias GraphStore = Graph<State, Action>
+    public typealias StoreGraph = Graph<State, Action>
     
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
@@ -96,8 +96,8 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     /// A type alias for a state streamer that emits `GraphStore` (graph) state updates.
     ///
-    /// `GraphStreamer` is a convenience alias for `StateStreamer<GraphStore>`, allowing you to create
-    /// asynchronous streams of `GraphStore` values. This is typically used to drive state updates to
+    /// `GraphStreamer` is a convenience alias for `StateStreamer<StoreGraph>`, allowing you to create
+    /// asynchronous streams of ``StoreGraph`` values. This is typically used to drive state updates to
     /// strongly-held subscribers (drivers) within the store architecture.
     ///
     /// - Note: Use `GraphStreamer` when you want to observe or react to changes in the store's state and dispatcher
@@ -115,11 +115,11 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// }
     /// ```
     ///
-    public typealias GraphStreamer = StateStreamer<GraphStore>
+    public typealias GraphStreamer = StateStreamer<StoreGraph>
     
     /// `ObjectStreamer` adopter that can receive async stream of `Graph<State, Action>`
-    public typealias Streamer = ObjectStreamer<GraphStore>
-    public typealias StreamerContinuation = AsyncStream<GraphStore>.Continuation
+    public typealias Streamer = ObjectStreamer<StoreGraph>
+    public typealias StreamerContinuation = AsyncStream<StoreGraph>.Continuation
     
     //MARK: - Public properties
     /// The internal dispatch queue used for synchronizing state updates and store operations.
@@ -183,9 +183,9 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// graph.dispatch(.increment) // Dispatch an action
     /// ```
     ///
-    /// - Note: Each access to `graph` returns a new `GraphStore` instance reflecting the latest state.
+    /// - Note: Each access to `graph` returns a new `StoreGraph` instance reflecting the latest state.
     ///
-    public var graph: GraphStore { GraphStore(state, dispatcher: dispatcher) }
+    public var graph: StoreGraph { Graph(state, dispatcher: dispatcher) }
     
     //MARK: - Private properties
     private var drivers = Set<GraphStreamer>()
@@ -232,13 +232,13 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     //MARK: - Public methods
     @inlinable
-    public subscript<T>(dynamicMember keyPath: KeyPath<GraphStore, T>) -> T {
+    public subscript<T>(dynamicMember keyPath: KeyPath<StoreGraph, T>) -> T {
         graph[keyPath: keyPath]
     }
     
     //MARK: - Deprecations
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
-    public typealias GraphObserver = Observer<GraphStore>
+    public typealias GraphObserver = Observer<StoreGraph>
     
     @available(*, deprecated)
     private(set) var observers = Set<GraphObserver>()
@@ -258,7 +258,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     @Sendable
     @usableFromInline
-    func dispatcher(_ effect: consuming GraphStore.Effect) {
+    func dispatcher(_ effect: consuming StoreGraph.Effect) {
         queue.sync {
             state = effect.reduce(state, using: reducer)
             drivers.forEach(yield)
@@ -421,7 +421,21 @@ public extension Store {
         queue.sync { drivers.remove(driver) }
     }
     
-    /// Check if driver is subscribed to `Store`.
+    /// Checks whether a given ``GraphStreamer`` (driver) is currently installed and subscribed to the ``Store``.
+    ///
+    /// This method returns `true` if the provided driver is actively installed and will receive state updates,
+    /// or `false` if the driver is not currently subscribed.
+    ///
+    /// - Parameter driver: The `GraphStreamer` instance to check for an active subscription.
+    /// - Returns: `true` if the driver is installed and subscribed to the store; otherwise, `false`.
+    ///
+    /// ### Example
+    /// ```swift
+    /// if store.contains(driver: myDriver) {
+    ///     print("Driver is currently installed and receiving updates.")
+    /// }
+    /// ```
+    ///
     func contains(driver: GraphStreamer) -> Bool {
         queue.sync { drivers.contains(driver) }
     }
