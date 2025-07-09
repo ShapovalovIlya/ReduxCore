@@ -11,40 +11,91 @@ import StoreThread
 
 /// A thread-safe, observable state container for managing application state and dispatching actions.
 ///
-/// The `Store` class is a generic, thread-safe container that holds application state and provides mechanisms
-/// for observing state changes, dispatching actions, and managing subscriptions. It is designed to be the
-/// central point of state management in an application, following principles similar to Redux or The Composable Architecture.
+/// The `Store` class is a generic, thread-safe container that serves as the central point for state management in your application.
+/// Inspired by architectures like Redux and The Composable Architecture, `Store` enables predictable, unidirectional data flow through a combination of state, actions, and reducers.
 ///
-/// `Store` supports both strong and weak subscription models:
-/// - **Drivers** (``GraphStreamer``): Strongly held subscribers that receive state updates until explicitly uninstalled.
-/// - **Streamers** (``ObjectStreamer``): Weakly held subscribers that receive state updates as long as they are retained elsewhere.
+/// ## Core Features
+/// - **Thread Safety:** All state mutations and actions are processed synchronously on a dedicated dispatch queue, ensuring safe access and mutation from any thread.
+/// - **Observability:** State is published via `@Published`, making it easy to observe from SwiftUI views or Combine pipelines.
+/// - **Flexible Subscriptions:** Supports both strong (drivers) and weak (streamers) subscription models for state observation.
+/// - **Action Dispatching:** Actions are dispatched to the store and applied to the current state using a reducer function.
+/// - **Encapsulation:** The `StoreGraph` abstraction allows you to expose only state and dispatch capability to child components, without leaking the full store.
 ///
-/// State updates are performed synchronously on a dedicated dispatch queue to ensure thread safety. Actions are
-/// dispatched to the store, which applies them to the current state using a reducer function. After each state
-/// update, all subscribers are notified with the new state.
-///
-/// The current state is also published via the `@Published` property, making it easy to observe from `SwiftUI` and updates `View` or Combine-based UIs.
-///
-/// ### Usage:
+/// ## Usage Example
 /// ```swift
-/// let store = Store<MyState, MyAction>(initial: MyState(), reducer: myReducer)
+/// // Creating a Store
+///
+/// enum CounterAction { case increment, decrement }
+///
+/// struct CounterState {
+///     var count: Int = 0
+/// }
+///
+/// let reducer: Store<CounterState, CounterAction>.Reducer = { state, action in
+///     switch action {
+///     case .increment:
+///         state.count += 1
+///     case .decrement:
+///         state.count -= 1
+///     }
+/// }
+///
+/// let store = Store<CounterState, CounterAction>(initial: CounterState(), reducer: reducer)
+///
+/// // Dispatching single Action
 /// store.dispatch(.increment)
+/// store.dispatch(.decrement)
+///
+///  // Dispatching sequence of Actions
+/// store.dispatch(contentsOf: [.increment, .increment, .decrement]) // as array or set
+/// store.dispatch(.increment, .increment, .decrement) // as variadic parameter
+///
+/// // Subscribing with a Streamer (Weak Subscription)
+/// let streamer = StateStreamer<Store.StoreGraph>()
+/// Task {
+///     for await graph in streamer {
+///         print("Streamer received count:", graph.count)
+///     }
+/// }
+/// store.subscribe(streamer)
+/// // As long as `streamer` is retained, it will receive state updates.
+///
+/// store.unsubscribe(streamer)
+/// // or you manualy unsubscribe streamer
+///
+/// // Installing a Driver (Strong Subscription)
+/// let driver = Store<CounterState, CounterAction>.GraphStreamer()
+/// Task {
+///     for await graph in driver.state {
+///         print("Driver received count:", graph.count)
+///     }
+/// }
+/// store.install(driver)
+/// // The store retains `driver` until you explicitly uninstall it.
+///
+/// store.uninstall(driver)
+///
 /// ```
 ///
-/// - Important: Deprecated observer APIs are retained for backward compatibility but will be removed in future versions. Use `StateStreamer` or `ObjectStreamer` for new code.
+/// ## Subscription Models
+/// - **Drivers (`GraphStreamer`):** Strongly-held subscribers that receive state updates until explicitly uninstalled.
+/// - **Streamers (`ObjectStreamer`):** Weakly-held subscribers that receive state updates as long as they are referenced elsewhere.
 ///
-/// - Parameters:
-///   - State: The type representing the state managed by the store.
-///   - Action: The type representing actions that can be dispatched to the store.
+/// ## Design Notes
+/// - Reducers should be pure functions that mutate only the provided state and avoid side effects.
+/// - The `graph` property provides a safe, weakly-referenced abstraction for passing state and dispatching to child components or views.
+/// - Deprecated observer APIs are retained for backward compatibility but will be removed in future versions; use `StateStreamer` or `ObjectStreamer` for new code.
 ///
-/// ### Key Features:
-/// - Thread-safe state access and mutation
-/// - Observable state via `@Published` for SwiftUI/Combine integration
-/// - Synchronous and asynchronous state streaming
-/// - Strong and weak subscription models
-/// - Action dispatching with reducer
-/// - Dynamic member lookup for convenient state access
+/// ## Type Parameters
+/// - `State`: The type representing the state managed by the store.
+/// - `Action`: The type representing actions that can be dispatched to the store.
 ///
+/// ## Best Practices
+/// - Use the store’s public API for all interactions to maintain thread safety and data integrity.
+/// - Prefer drivers for long-lived, strongly-held subscriptions.
+/// - Use streamers for ephemeral or weakly-held observers.
+///
+/// The `Store` class provides a robust foundation for scalable, predictable state management in any Swift application.
 @dynamicMemberLookup
 public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     //MARK: - Aliases
@@ -164,28 +215,35 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     ///
     public let reducer: Reducer
     
+    @usableFromInline
     @Published private(set) var state: State
     
-    /// A computed property that provides a ``GraphStore`` (graph) representation of the current state and dispatcher.
+    /// A computed property that provides a ‎``StoreGraph``—an abstraction encapsulating the current state and a dispatcher for actions.
     ///
-    /// The `graph` property exposes the current state of the store wrapped in a ``Graph`` structure, which also
-    /// includes a dispatcher for sending actions. This allows consumers to interact with the state and dispatch
-    /// actions in a type-safe and encapsulated manner.
+    /// The ‎`graph` property returns a new ‎``StoreGraph`` instance each time it is accessed, reflecting the store’s latest state and offering a type-safe way to dispatch actions.
     ///
-    /// The ``Graph`` abstraction is useful for passing state and dispatching capabilities to child components or views without exposing the entire ``Store``.
+    /// Importantly, accessing or passing the ‎`graph` does not create a strong reference cycle or extend the lifetime of the store.
+    /// As a result, you can safely pass ‎`graph` to child components or views without risk of memory leaks or unintended retention of the store instance.
+    /// Use ‎`graph` to expose just the state and dispatch capability to child components or views, without exposing the full store or its internal mechanisms.
+    /// This is especially useful for unidirectional data flow architectures, where you want to allow updates via actions but keep state mutations centralized.
     ///
-    /// - Returns: A ``GraphStore`` instance containing the current state and a dispatcher for actions.
+    /// - Returns: A ‎``StoreGraph`` containing the current state and a dispatcher closure.
     ///
     /// ### Example:
-    /// ```swift
+    ///```swift
     /// let graph = store.graph
     /// print(graph.state) // Access the current state
     /// graph.dispatch(.increment) // Dispatch an action
     /// ```
     ///
-    /// - Note: Each access to `graph` returns a new `StoreGraph` instance reflecting the latest state.
+    /// - Note: Each access to ‎`graph` yields a fresh ‎`StoreGraph` instance with the most recent state.
     ///
-    public var graph: StoreGraph { Graph(state, dispatcher: dispatcher) }
+    @inlinable
+    public var graph: StoreGraph {
+        Graph(state) { [weak self] actions in
+            self?.dispatcher(actions)
+        }
+    }
     
     //MARK: - Private properties
     private var drivers = Set<GraphStreamer>()
@@ -258,9 +316,10 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     @Sendable
     @usableFromInline
-    func dispatcher(_ effect: consuming StoreGraph.Effect) {
+    func dispatcher(_ actions: some Collection<Action>) {
+        if actions.isEmpty { return }
         queue.sync {
-            state = effect.reduce(state, using: reducer)
+            state = actions.reduce(into: state, reducer)
             drivers.forEach(yield)
             continuations.forEach(yield)
             
@@ -456,7 +515,7 @@ public extension Store {
     ///
     @inlinable
     func dispatch(_ action: Action) {
-        dispatcher(.single(action))
+        dispatcher(CollectionOfOne(action))
     }
     
     /// Dispatches a sequence of actions to the store for processing in order.
@@ -475,7 +534,7 @@ public extension Store {
     ///
     @inlinable
     func dispatch(contentsOf s: some Sequence<Action>) {
-        dispatcher(.multiple(Array(s)))
+        dispatcher(Array(s))
     }
 }
 

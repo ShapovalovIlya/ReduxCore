@@ -35,9 +35,11 @@ import Foundation
 /// - Note: The dispatcher is a closure that sends actions to the underlying store. The `Graph` itself does not mutate state directly.
 ///
 public struct Graph<State, Action>: Sendable {
-    @usableFromInline typealias Dispatcher = @Sendable (consuming Effect) -> Void
+    @usableFromInline
+    typealias Dispatcher = @Sendable (any Collection<Action>) -> Void
     
-    @usableFromInline let dispatcher: Dispatcher
+    @usableFromInline
+    let dispatcher: Dispatcher
     
     /// The current state snapshot represented by this ``Graph`` instance.
     ///
@@ -59,6 +61,7 @@ public struct Graph<State, Action>: Sendable {
 
     //MARK: - init(_:)
     @Sendable
+    @inlinable
     init(_ state: State, dispatcher: @escaping Dispatcher) {
         self.state = state
         self.dispatcher = dispatcher
@@ -84,7 +87,7 @@ public struct Graph<State, Action>: Sendable {
     @inlinable
     @Sendable
     public func dispatch(_ action: Action) {
-        dispatcher(.single(action))
+        dispatcher(CollectionOfOne(action))
     }
     
     /// Dispatches multiple actions to the underlying ``Store`` in the order provided.
@@ -105,7 +108,7 @@ public struct Graph<State, Action>: Sendable {
     @inlinable
     @Sendable
     public func dispatch(_ actions: Action...) {
-        dispatcher(.multiple(actions))
+        dispatcher(actions)
     }
     
     /// Dispatches a sequence of actions to the underlying store in the order they appear in the sequence.
@@ -126,34 +129,6 @@ public struct Graph<State, Action>: Sendable {
     @inlinable
     @Sendable
     public func dispatch(contentsOf s: some Sequence<Action>) {
-        dispatcher(.multiple(Array(s)))
+        dispatcher(Array(s))
     }
 }
-
-public extension Graph {
-    //MARK: - Effect
-    enum Effect {
-        case single(Action)
-        case multiple([Action])
-        
-        @inlinable
-        public func reduce(
-            _ state: State,
-            using reducer: (inout State, Action) -> Void
-        ) -> State {
-            switch self {
-            case let .single(action):
-                var state = state
-                reducer(&state, action)
-                return state
-                
-            case let .multiple(actions):
-                return actions.reduce(into: state, reducer)
-            }
-        }
-    }
-}
-
-extension Graph.Effect: Sendable where Action: Sendable {}
-extension Graph.Effect: Equatable where Action: Equatable {}
-extension Graph.Effect: Hashable where Action: Hashable {}
