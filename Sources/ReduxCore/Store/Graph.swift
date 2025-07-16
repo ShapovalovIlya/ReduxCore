@@ -7,47 +7,57 @@
 
 import Foundation
 
-/// A value type that encapsulates application state and provides a type-safe interface for dispatching actions.
+/// A lightweight, value-type snapshot of application state with a type-safe action dispatcher.
 ///
-/// The `Graph` struct represents a snapshot of the ``Store``'s state along with a dispatcher function for sending actions.
-/// It is designed to be a lightweight, sendable wrapper that can be safely passed between threads or used in
-/// child components and views. The `Graph` abstraction allows consumers to read the current state and dispatch
-/// actions without exposing the full store, supporting unidirectional data flow and modular architecture.
+/// ‎`Graph` provides read-only access to a snapshot of the application’s state and a closure for dispatching actions.
+/// It is designed to be safely passed between threads and used in child components or views, supporting unidirectional data flow.
+///
+/// ‎`Graph` instances are cheap to copy and pass around, making them suitable for use in performance-sensitive or highly modular code.
 ///
 /// - Parameters:
 ///   - State: The type representing the application state.
 ///   - Action: The type representing actions that can be dispatched to update the state.
 ///
-/// ### Key Features
-/// - Encapsulates the current state in a value type
-/// - Provides a type-safe dispatcher for sending single or multiple actions
-/// - Conforms to `Sendable` for safe use in concurrent contexts
+/// ## Features
+/// - Encapsulates a snapshot of state in a value type.
+/// - Provides a type-safe, thread-safe dispatcher for single or multiple actions.
+/// - Conforms to ‎`Sendable` for safe use in concurrent contexts.
 ///
-/// ### Usage
+/// ## Usage
 /// ```swift
 /// let graph = store.graph
-/// print(graph.state) // Access the current state
+/// print(graph.state) // Access the current state snapshot
 /// graph.dispatch(.increment) // Dispatch a single action
 /// graph.dispatch(.increment, .decrement) // Dispatch multiple actions
 /// graph.dispatch(contentsOf: [.reset, .increment])
 /// ```
 ///
-/// - Note: The dispatcher is a closure that sends actions to the underlying store. The `Graph` itself does not mutate state directly.
-///
+/// - Note: ‎`Graph` does not subscribe to state changes. To observe updates, access the latest ‎`Graph` from the parent ‎`Store`.
 public struct Graph<State, Action>: Sendable {
     @usableFromInline
     typealias Dispatcher = @Sendable (any Collection<Action>) -> Void
     
     @usableFromInline
+    final class Storage<Wrapped>: Sendable {
+        
+        @usableFromInline
+        let wrapped: Wrapped
+        
+        @inlinable
+        init(_ wrapped: Wrapped) { self.wrapped = wrapped }
+    }
+    
+    @usableFromInline
+    let storage: Storage<State>
+    
+    @usableFromInline
     let dispatcher: Dispatcher
     
-    /// The current state snapshot represented by this ``Graph`` instance.
+    /// The current state snapshot represented by this `Graph` instance.
     ///
-    /// This property provides read-only access to the state at the time the ``Graph`` was created.
-    /// Use this property to inspect the current values of your application's state in a type-safe manner.
+    /// This property is immutable and reflects the state at the time the `Graph` was created.
+    /// To observe state changes, retrieve a new `Graph` from the parent `Store`.
     ///
-    /// - Note: The `state` property is immutable within the `Graph` instance.
-    ///         To observe state changes over time, access the latest `Graph` from the parent ``Store``.
     /// - Note: The `Graph` instance itself does not subscribe to store updates.
     ///         To receive continuous updates, subscribe to the ``Store`` via ``Store/Streamer`` or ``Store/GraphStreamer``.
     ///
@@ -57,13 +67,16 @@ public struct Graph<State, Action>: Sendable {
     /// print(graph.state) // Access the current state
     /// ```
     ///
-    public let state: State
+    @inlinable
+    public var state: State {
+        _read { yield storage.wrapped }
+    }
 
     //MARK: - init(_:)
     @Sendable
     @inlinable
     init(_ state: State, dispatcher: @escaping Dispatcher) {
-        self.state = state
+        self.storage = Storage(state)
         self.dispatcher = dispatcher
     }
     
@@ -71,19 +84,11 @@ public struct Graph<State, Action>: Sendable {
     
     /// Dispatches a single action to the underlying ``Store``.
     ///
-    /// This method sends the provided action to the store's dispatcher, which will process the action
-    /// and update the state accordingly. Use this method to trigger state changes in response to user
-    /// interactions or other events.
+    /// Triggers state changes in response to user interactions or events.
     ///
-    /// This method is thread-safe and can be called from any thread.
+    /// - Note: This method is thread-safe and can be called from any thread.
     ///
     /// - Parameter action: The action to be dispatched to the store.
-    ///
-    /// ### Example:
-    /// ```swift
-    /// graph.dispatch(.increment)
-    /// ```
-    ///
     @inlinable
     @Sendable
     public func dispatch(_ action: Action) {
@@ -92,19 +97,11 @@ public struct Graph<State, Action>: Sendable {
     
     /// Dispatches multiple actions to the underlying ``Store`` in the order provided.
     ///
-    /// This method sends all provided actions to the store's dispatcher, which will process each action
-    /// sequentially and update the state accordingly. Use this method to trigger a series of state changes
-    /// in response to a single event or operation.
+    /// Use to trigger a series of state changes.
     ///
-    /// This method is thread-safe and can be called from any thread.
+    /// - Note: This method is thread-safe and can be called from any thread.
     ///
     /// - Parameter actions: A variadic list of actions to be dispatched to the store, in order.
-    ///
-    /// ### Example:
-    /// ```swift
-    /// graph.dispatch(.increment, .decrement, .reset)
-    /// ```
-    ///
     @inlinable
     @Sendable
     public func dispatch(_ actions: Action...) {
@@ -113,22 +110,21 @@ public struct Graph<State, Action>: Sendable {
     
     /// Dispatches a sequence of actions to the underlying store in the order they appear in the sequence.
     ///
-    /// This method sends all actions in the provided sequence to the store's dispatcher, which will process each action
-    /// sequentially and update the state accordingly. Use this method to trigger a batch of state changes efficiently.
+    /// Use to efficiently batch state changes.
     ///
-    /// This method is thread-safe and can be called from any thread.
+    /// - Note: This method is thread-safe and can be called from any thread.
     ///
     /// - Parameter s: A sequence of actions to be dispatched to the store, in order.
-    ///
-    /// ### Example:
-    /// ```swift
-    /// let actions: [MyAction] = [.increment, .decrement, .reset]
-    /// graph.dispatch(contentsOf: actions)
-    /// ```
-    ///
     @inlinable
     @Sendable
     public func dispatch(contentsOf s: some Sequence<Action>) {
         dispatcher(Array(s))
+    }
+}
+
+extension Graph: Equatable {
+    @inlinable
+    public static func == (lhs: Graph<State, Action>, rhs: Graph<State, Action>) -> Bool {
+        ObjectIdentifier(lhs.storage) == ObjectIdentifier(rhs.storage)
     }
 }
