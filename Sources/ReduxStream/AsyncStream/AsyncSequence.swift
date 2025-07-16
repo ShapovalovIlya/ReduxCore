@@ -23,7 +23,7 @@ public extension AsyncSequence {
     /// Creates an asynchronous sequence that omits repeated elements by testing them with a predicate.
     @inlinable
     func removeDuplicates(
-        by predicate: @escaping @Sendable (Element, Element) -> Bool
+        by predicate: @escaping (Element, Element) -> Bool
     ) -> ReduxStream.RemoveDuplicates<Self> {
         ReduxStream.RemoveDuplicates(self, predicate: predicate)
     }
@@ -31,7 +31,7 @@ public extension AsyncSequence {
     /// Creates an asynchronous sequence that omits repeated elements by testing them with an error-throwing predicate.
     @inlinable
     func removeDuplicates(
-        by predicate: @escaping @Sendable (Element, Element) async throws -> Bool
+        by predicate: @escaping (Element, Element) async throws -> Bool
     ) -> ReduxStream.ThrowingRemoveDuplicates<Self> {
         ReduxStream.ThrowingRemoveDuplicates(self, predicate: predicate)
     }

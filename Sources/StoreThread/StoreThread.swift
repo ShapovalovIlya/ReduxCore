@@ -170,11 +170,13 @@ public extension StoreThread {
         }
         
         /// Default settings instructions
-        public static let `default` = Settings(
-            name: "StoreThread",
-            qos: .default,
-            stackSize: nil,
-            priority: nil
-        )
+        public static var `default`: Settings {
+            Settings(
+                name: "StoreThread",
+                qos: .default,
+                stackSize: nil,
+                priority: nil
+            )
+        }
     }
 }

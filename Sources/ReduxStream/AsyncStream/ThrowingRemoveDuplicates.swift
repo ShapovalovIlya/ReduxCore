@@ -12,7 +12,7 @@ public extension ReduxStream {
     /// An asynchronous sequence that omits repeated elements by testing them with an error-throwing predicate.
     struct ThrowingRemoveDuplicates<Base: AsyncSequence>: AsyncSequence {
         public typealias Element = Base.Element
-        public typealias Predicate = @Sendable (Element, Element) async throws -> Bool
+        public typealias Predicate = (Element, Element) async throws -> Bool
         
         //MARK: - Properties
         @usableFromInline let base: Base
@@ -73,8 +73,6 @@ extension ReduxStream.ThrowingRemoveDuplicates {
         }
     }
 }
-
-extension ReduxStream.ThrowingRemoveDuplicates: Sendable where Base: Sendable, Base.Element: Sendable { }
 
 @available(*, unavailable)
 extension ReduxStream.ThrowingRemoveDuplicates.Iterator: Sendable { }
