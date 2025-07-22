@@ -85,8 +85,26 @@ public extension AsyncSequence {
         ReduxStream.ThrowingRemoveDuplicates(self, predicate: predicate)
     }
     
-    /// An asynchronous sequence that combine repeated elements with weakly retained Object.
-    /// - Parameter object: the object that will be passed downstream by weak reference.
+    /// Returns an asynchronous sequence that combines each element from the current sequence with a weakly retained object.
+    ///
+    /// This method creates a ``ReduxStream/ReduxStream/WithUnretained`` sequence from the current async sequence and the provided object.
+    /// Each element yielded by the resulting sequence is a tuple containing the object and the corresponding element from the base sequence.
+    /// The sequence automatically terminates if the upstream sequence finishes, the parent task is cancelled, or the object is deallocated.
+    ///
+    /// - Note: If `object` is deallocated, the sequence ends.
+    ///
+    /// - Parameter object: The object to be weakly retained and combined with each element of the sequence.
+    /// - Returns: An async sequence yielding tuples of the object and each element from the original sequence. The sequence ends if the object is released.
+    ///
+    /// ### Example
+    /// ```swift
+    /// class MyClass {}
+    /// let object = MyClass()
+    /// let numbers = [1, 2, 3].async
+    /// for await (obj, number) in numbers.withUnretained(object) {
+    ///     print(obj, number)
+    /// }
+    /// ```
     @inlinable
     func withUnretained<Unretained: AnyObject>(
         _ object: Unretained

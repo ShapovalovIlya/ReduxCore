@@ -9,9 +9,27 @@ import Foundation
 
 public extension ReduxStream {
     //MARK: - WithUnretained
-    /// An asynchronous sequence that combine repeated elements with weakly retained Object.
+
+    /// An asynchronous sequence that combines each element from an upstream async sequence with a weakly retained object.
     ///
-    /// The sequence will be canceled when the upstream is canceled or the object is released.
+    /// `WithUnretained` wraps a base `AsyncSequence` and yields a tuple containing a weakly retained object and each element from the base sequence.
+    /// The sequence automatically terminates if the upstream sequence finishes, the parent task is cancelled, or the object is released (deallocated).
+    ///
+    /// - Parameters:
+    ///    - Base: The type of the underlying async sequence.
+    ///    - Object: The type of the object to be weakly retained. Must be a class type (`AnyObject`).
+    ///
+    /// ### Example
+    /// ```swift
+    /// class MyClass {}
+    /// let object = MyClass()
+    /// let numbers = [1, 2, 3].async
+    /// for await (obj, number) in numbers.withUnretained(object) {
+    ///     print(obj, number)
+    /// }
+    /// ```
+    ///
+    /// - Note: If `object` is deallocated, the sequence ends.
     struct WithUnretained<Base, Object>: AsyncSequence where Base: AsyncSequence,
                                                              Object: AnyObject {
         public typealias Element = (Object, Base.Element)
@@ -30,6 +48,10 @@ public extension ReduxStream {
         }
         
         //MARK: - Public methods
+        
+        /// Returns an iterator that produces tuples of the weakly retained object and elements from the base sequence.
+        ///
+        /// - Returns: An iterator that yields `(Object, Base.Element)` tuples, or ends if the object is released.
         @inlinable
         public func makeAsyncIterator() -> Iterator {
             Iterator(iterator: base.makeAsyncIterator(), unretained: unretained)
@@ -39,10 +61,12 @@ public extension ReduxStream {
 
 public extension ReduxStream.WithUnretained {
     //MARK: - Iterator
-    /// The iterator for an `WithUnretained` instance.
+
+    /// The iterator for a `WithUnretained` instance.
     ///
-    /// The iterator's `next()` method return `nil` when parent `Task` is cancelled,
-    /// upstream `iterator.next()` return `nil` or unretained `object` is released.
+    /// The iterator yields tuples of the weakly retained object and each element from the base sequence.
+    /// The iterator's `next()` method returns `nil` if the parent task is cancelled, the upstream iterator finishes,
+    /// or the object is released (deallocated).
     struct Iterator: AsyncIteratorProtocol {
         //MARK: - Properties
         @usableFromInline var iterator: Base.AsyncIterator
@@ -59,22 +83,29 @@ public extension ReduxStream.WithUnretained {
         }
         
         //MARK: - Public methods
+        
+        /// Returns the next tuple of the weakly retained object and an element from the underlying async sequence, or `nil` if the sequence is finished.
+        ///
+        /// This method yields a tuple containing the current value of the weakly retained object and the next element from the base sequence.
+        /// The method returns `nil` and terminates the sequence if:
+        /// - The upstream iterator returns `nil` (i.e., the sequence is finished),
+        /// - The weakly retained object has been deallocated,
+        /// - The parent task is cancelled.
+        ///
+        /// - Returns: The next `(Object, Base.Element)` tuple, or `nil` if the sequence is finished or the object is released.
+        /// - Throws: Rethrows errors from the underlying iterator.
         @inlinable
-        public mutating func next() async throws -> Element? {
-            while let element = try await iterator.next() {
-                try Task.checkCancellation()
-                guard let unretained else {
-                    return nil
-                }
-                return (unretained, element)
+        public mutating func next() async rethrows -> Element? {
+            guard let next = try await iterator.next(), let unretained else {
+                return nil
             }
-            return nil
+            try Task.checkCancellation()
+            return (unretained, next)
         }
     }
 }
 
-extension ReduxStream.WithUnretained: Sendable where Base: Sendable,
-                                                     Object: Sendable {}
+extension ReduxStream.WithUnretained: Sendable where Base: Sendable, Object: Sendable {}
 
 @available(*, unavailable)
 extension ReduxStream.WithUnretained.Iterator: Sendable {}

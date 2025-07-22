@@ -10,19 +10,37 @@ import Testing
 @testable import ReduxStream
 
 struct ReduxStreamTests_new {
+    
+    @Test func streamValues() async {
+        let sut = StateStreamer<Int>()
+        let expexted = Array(repeating: Int.random(in: 0...100), count: 100)
+        
+        let task = Task {
+            await sut.reduce(into: [Int]()) { partialResult, value in
+                partialResult.append(value)
+            }
+        }
+        
+        expexted.forEach {
+            sut.yield($0)
+        }
+        sut.finish()
+        
+        let result = await task.value
+        #expect(expexted.elementsEqual(result))
+    }
+    
     @Test(.disabled())
     func throttleSequence() async throws {
         let sut = StateStreamer<Date>()
         let interval = 0.3
         
         let task = Task {
-            var intervals = [Date]()
-            
-            for await date in sut.state.throttle(for: interval) {
-                intervals.append(date)
-            }
-            
-            return intervals
+            await sut
+                .throttle(for: interval)
+                .reduce(into: [Date]()) { partialResult, date in
+                    partialResult.append(date)
+                }
         }
         
         for _ in 0...10 {
@@ -46,6 +64,33 @@ struct ReduxStreamTests_new {
         
         #expect(least >= interval)
     }
+    
+    @Test func withUnretained() async throws {
+        let (sut, continuation) = AsyncStream.newStream(of: Int.self)
+        let values = [0,1,2,3]
+        
+        let task = Task {
+            var object: NSObject? = NSObject()
+            
+            return await sut
+                .withUnretained(try #require(object))
+                .reduce(into: [Int]()) { partialResult, pair in
+                    let value = pair.1
+                    partialResult.append(value)
+                    if value == 2 {
+                        object = nil
+                    }
+                }
+        }
+        
+        values.forEach {
+            continuation.yield($0)
+        }
+        continuation.finish()
+        
+        let result = try await task.value
+        #expect(result != values)
+    }
 }
 
 final class ReduxStreamTests: XCTestCase {
@@ -64,22 +109,6 @@ final class ReduxStreamTests: XCTestCase {
         
         sut = nil
         arr = nil
-    }
-    
-    func test_streamerStream() async {
-        let task = Task {
-            for await val in sut {
-                arr.add(val)
-            }
-        }
-        
-        sut.yield(0)
-        sut.yield(1)
-        sut.yield(2)
-        sut.finish()
-        
-        await task.value
-        XCTAssertEqual(arr, [0,1,2])
     }
     
     func test_streamerRemoveDuplicates() async {
