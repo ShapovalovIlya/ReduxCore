@@ -11,7 +11,21 @@ import Foundation
 public enum ReduxStream { }
 
 public extension AsyncSequence where Element: Equatable {
-    /// Creates an asynchronous sequence that omits repeated elements.
+    
+    /// Returns an asynchronous sequence that omits consecutive duplicate elements, using equality (`==`) for comparison.
+    ///
+    /// This method creates a ``ReduxStream/ReduxStream/RemoveDuplicates`` sequence from the current async sequence,
+    /// yielding only elements that are not equal to the immediately preceding element.
+    ///
+    /// - Returns: An async sequence that yields only unique consecutive elements from the original sequence.
+    ///
+    /// ### Example
+    /// ```swift
+    /// let numbers = [1, 1, 2, 2, 3].async
+    /// for await number in numbers.removeDuplicates() {
+    ///     print(number) // Prints: 1, 2, 3
+    /// }
+    /// ```
     @inlinable
     func removeDuplicates() -> ReduxStream.RemoveDuplicates<Self> {
         ReduxStream.RemoveDuplicates(self) { $0 == $1 }
@@ -20,7 +34,23 @@ public extension AsyncSequence where Element: Equatable {
 
 public extension AsyncSequence {
     //MARK: - Custom Sequence
-    /// Creates an asynchronous sequence that omits repeated elements by testing them with a predicate.
+    
+    /// Returns an asynchronous sequence that omits consecutive duplicate elements, using the provided predicate for comparison.
+    ///
+    /// This method creates a ``ReduxStream/ReduxStream/RemoveDuplicates`` sequence from the current async sequence,
+    /// yielding only elements that are not considered duplicates of the immediately preceding element,
+    /// as determined by the given predicate.
+    ///
+    /// - Parameter predicate: A closure that takes two elements and returns `true` if they are considered duplicates.
+    /// - Returns: An async sequence that yields only unique consecutive elements from the original sequence, according to the predicate.
+    ///
+    /// ### Example
+    /// ```swift
+    /// let words = ["apple", "Apple", "banana", "banana"].async
+    /// for await word in words.removeDuplicates(by: { $0.lowercased() == $1.lowercased() }) {
+    ///     print(word) // Prints: "apple", "banana"
+    /// }
+    /// ```
     @inlinable
     func removeDuplicates(
         by predicate: @escaping (Element, Element) -> Bool
@@ -28,10 +58,29 @@ public extension AsyncSequence {
         ReduxStream.RemoveDuplicates(self, predicate: predicate)
     }
     
-    /// Creates an asynchronous sequence that omits repeated elements by testing them with an error-throwing predicate.
+    /// Returns an asynchronous sequence that omits consecutive duplicate elements, using the provided error-throwing predicate for comparison.
+    ///
+    /// This method creates a ``ReduxStream/ReduxStream/ThrowingRemoveDuplicates`` sequence from the current async sequence,
+    /// yielding only elements that are not considered duplicates of the immediately preceding element,
+    /// as determined by the given predicate. If the predicate throws an error, the sequence terminates with that error.
+    ///
+    /// - Parameter predicate: A closure that takes two elements and returns `true` if they are considered duplicates, or throws an error.
+    /// - Returns: An async sequence that yields only unique consecutive elements from the original sequence, according to the predicate.
+    /// - Throws: Rethrows errors from the predicate during iteration.
+    ///
+    /// ### Example
+    /// ```swift
+    /// let numbers = [1, 1, 2, 2, 3].async
+    /// for try await number in numbers.removeDuplicates(by: { lhs, rhs in
+    ///     if lhs < 0 || rhs < 0 { throw MyError.negativeValue }
+    ///     return lhs == rhs
+    /// }) {
+    ///     print(number) // Prints: 1, 2, 3
+    /// }
+    /// ```
     @inlinable
     func removeDuplicates(
-        by predicate: @escaping (Element, Element) async throws -> Bool
+        by predicate: @escaping (Element, Element) throws -> Bool
     ) -> ReduxStream.ThrowingRemoveDuplicates<Self> {
         ReduxStream.ThrowingRemoveDuplicates(self, predicate: predicate)
     }
