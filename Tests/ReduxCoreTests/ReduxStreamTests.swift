@@ -30,8 +30,7 @@ struct ReduxStreamTests_new {
         #expect(expexted.elementsEqual(result))
     }
     
-    @Test(.disabled())
-    func throttleSequence() async throws {
+    @Test func throttleSequence() async throws {
         let sut = StateStreamer<Date>()
         let interval = 0.3
         
@@ -47,7 +46,7 @@ struct ReduxStreamTests_new {
             try await Task.sleep(for: .seconds(Double.random(in: 0.1...0.4)))
             sut.continuation.yield(Date())
         }
-        sut.continuation.finish()
+        sut.finish()
                 
         var events = await task.value
         var intervals = [TimeInterval]()

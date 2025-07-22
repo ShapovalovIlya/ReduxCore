@@ -112,7 +112,22 @@ public extension AsyncSequence {
         ReduxStream.WithUnretained(base: self, unretained: object)
     }
     
-    /// Create a rate-limited `AsyncSequence` by emitting values at most every specified interval.
+    /// Returns a throttled asynchronous sequence that emits elements no more frequently than the specified interval.
+    ///
+    /// This method creates a ``ReduxStream/ReduxStream/Throttle`` sequence from the current async sequence.
+    /// Use this method to limit the rate at which elements are emitted from the sequence.
+    /// Only one element will be emitted per interval, even if the base sequence produces more elements.
+    ///
+    /// - Parameter interval: The minimum interval (in seconds) between emitted elements.
+    /// - Returns: A sequence that emits elements at most once per specified interval.
+    ///
+    /// Example:
+    /// ```swift
+    /// let throttledSequence = someAsyncSequence.throttle(for: 1.0)
+    /// for await value in throttledSequence {
+    ///     print(value) // Values are printed at most once per second
+    /// }
+    /// ```
     @inlinable
     func throttle(for interval: TimeInterval) -> ReduxStream.Throttle<Self> {
         ReduxStream.Throttle(base: self, interval: interval)
