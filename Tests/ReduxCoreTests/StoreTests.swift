@@ -12,10 +12,11 @@ import ReduxCore
 struct StoreTests {
     typealias Sut = Store<Int, Int>
     typealias SutGraph = Sut.StoreGraph
+    typealias Streamer = StateStreamer<SutGraph>
     
     @Test func storeDrivers() async throws {
         let sut = makeSUT()
-        let driver = StateStreamer<SutGraph>()
+        let driver = Streamer()
         
         sut.install(driver)
         
@@ -28,8 +29,8 @@ struct StoreTests {
     
     @Test func storeStreamers() async throws {
         let sut = makeSUT()
-        let streamer1 = StateStreamer<SutGraph>()
-        let streamer2 = StateStreamer<SutGraph>()
+        let streamer1 = Streamer()
+        let streamer2 = Streamer()
         
         sut.subscribe(streamer1)
         sut.subscribe(streamer2)
@@ -61,7 +62,7 @@ struct StoreTests {
         #expect(sut.state == 8)
     }
     
-    @Test func graphDispatchSingle() async throws {
+    @Test func graphDispatchSingleAction() async throws {
         let sut = makeSUT()
         
         sut.graph.dispatch(1)
@@ -71,7 +72,7 @@ struct StoreTests {
         #expect(sut.state == 3)
     }
     
-    @Test func dispatchMultiple() async throws {
+    @Test func graphDispatchMultipleActions() async throws {
         let sut = makeSUT()
         
         sut.graph.dispatch(1, 1, 1)
@@ -80,7 +81,7 @@ struct StoreTests {
         #expect(sut.state == 6)
     }
     
-    @Test func dataRace() async throws {
+    @Test func storeResistDataRace() async throws {
         let sut = makeSUT()
         
         await withTaskGroup(of: Void.self) { group in
@@ -102,9 +103,9 @@ struct StoreTests {
     
     @Test func subscribeStreamer() async throws {
         let sut = makeSUT()
-        let one = StateStreamer<SutGraph>()
-        let two = StateStreamer<SutGraph>()
-        let three = StateStreamer<SutGraph>()
+        let one = Streamer()
+        let two = Streamer()
+        let three = Streamer()
         
         sut.install(one)
         sut.install(two)
@@ -117,9 +118,9 @@ struct StoreTests {
 
     @Test func subscribeStreamerUsingBuilder() async throws {
         let sut = makeSUT()
-        let one = StateStreamer<SutGraph>()
-        let two = StateStreamer<SutGraph>()
-        let three = StateStreamer<SutGraph>()
+        let one = Streamer()
+        let two = Streamer()
+        let three = Streamer()
         
         sut.installAll {
             one
@@ -134,88 +135,96 @@ struct StoreTests {
 
     @Test func notifyDriverMultipleTimes() async throws {
         let sut = makeSUT()
-        let streamer = StateStreamer<SutGraph>()
-        var arr = [Int]()
+        let driver = Streamer()
+        let actions = Array(repeating: 1, count: 3)
         
-        sut.install(streamer)
+        sut.install(driver)
         
         let task = Task {
-            for await value in streamer.state {
-                arr.append(value.state)
-            }
+            await driver
+                .map(\.state)
+                .reduce(into: [Int]()) { result, element in
+                    result.append(element)
+                }
         }
         
-        sut.graph.dispatch(1)
-        sut.graph.dispatch(1)
-        sut.graph.dispatch(1)
-        streamer.continuation.finish()
+        actions.forEach(sut.graph.dispatch)
+        driver.continuation.finish()
         
-        await task.value
-        #expect(arr == [0,1,2,3])
+        let result = await task.value
+        #expect(result == [0,1,2,3])
     }
     
-    @Test func notifyDriverSingleTime() async throws {
+    @Test func dispatchMultipleActionsNotifyDriverOnce() async throws {
         let sut = makeSUT()
-        let streamer = StateStreamer<SutGraph>()
+        let driver = Streamer()
         let actions = Array(repeating: 1, count: 3)
-        var arr = [Int]()
         
-        sut.install(streamer)
+        sut.install(driver)
         
         let task = Task {
-            for await value in streamer.state {
-                arr.append(value.state)
+            await driver
+                .map(\.state)
+                .reduce(into: [Int]()) { $0.append($1) }
+        }
+        
+        sut.graph.dispatch(contentsOf: actions)
+        driver.continuation.finish()
+        
+        let result = await task.value
+        #expect(result == [0, 3])
+    }
+    
+    @Test func dispatchActionNotifyStreamer() async throws {
+        let sut = makeSUT()
+        let streamer = Streamer()
+        let actions = Array(repeating: 1, count: 3)
+        
+        sut.subscribe(streamer)
+        
+        let task = Task {
+            await streamer
+                .map(\.state)
+                .reduce(into: [Int]()) { $0.append($1) }
+        }
+
+        actions.forEach(sut.graph.dispatch)
+        streamer.continuation.finish()
+        
+        let result = await task.value
+        #expect(result == [0,1,2,3])
+    }
+    
+    @Test func dispatchMultipleActionsNotifyStreamerOnce() async throws {
+        let sut = makeSUT()
+        let streamer = Streamer()
+        let actions = Array(repeating: 1, count: 3)
+        
+        sut.subscribe(streamer)
+        
+        let task = Task {
+            await streamer.reduce(into: [Int]()) { result, action in
+                result.append(action.state)
             }
         }
         
         sut.graph.dispatch(contentsOf: actions)
         streamer.continuation.finish()
         
-        await task.value
-        #expect(arr == [0, 3])
+        let result = await task.value
+        #expect(result == [0, 3])
     }
     
-    @Test func notifyStreamerMultipleTimes() async throws {
-        let sut = makeSUT()
-        let streamer = StateStreamer<SutGraph>()
-        var arr = [Int]()
+    @Test func dispatchActionsInOrder() async throws {
+        let sut = Store(initial: [Int]()) { $0.append($1) }
+        let actions = Array(
+            repeating: Int.random(in: Int.min...Int.max),
+            count: Int.random(in: 1...10000)
+        )
         
-        sut.subscribe(streamer)
+        actions.forEach(sut.dispatch(_:))
         
-        let task = Task {
-            for await value in streamer.state {
-                arr.append(value.state)
-            }
-        }
-        
-        sut.graph.dispatch(1)
-        sut.graph.dispatch(1)
-        sut.graph.dispatch(1)
-        streamer.continuation.finish()
-        
-        await task.value
-        #expect(arr == [0,1,2,3])
-    }
-    
-    @Test func notifyStreamerSingleTime() async throws {
-        let sut = makeSUT()
-        let streamer = StateStreamer<SutGraph>()
-        let actions = Array(repeating: 1, count: 3)
-        var arr = [Int]()
-        
-        sut.subscribe(streamer)
-        
-        let task = Task { @MainActor in
-            for await value in streamer.state {
-                arr.append(value.state)
-            }
-        }
-        
-        sut.graph.dispatch(contentsOf: actions)
-        streamer.continuation.finish()
-        
-        await task.value
-        #expect(arr == [0, 3])
+        #expect(sut.state == actions)
     }
 }
 

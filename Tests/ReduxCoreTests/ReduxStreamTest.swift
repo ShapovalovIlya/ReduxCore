@@ -5,11 +5,11 @@
 //  Created by Илья Шаповалов on 12.05.2024.
 //
 
-import XCTest
+import Foundation
 import Testing
 @testable import ReduxStream
 
-struct ReduxStreamTests_new {
+struct ReduxStreamTest {
     
     @Test func streamValues() async {
         let sut = StateStreamer<Int>()
@@ -90,83 +90,42 @@ struct ReduxStreamTests_new {
         let result = try await task.value
         #expect(result != values)
     }
-}
-
-final class ReduxStreamTests: XCTestCase {
-    private var sut: StateStreamer<Int>!
-    private var arr: NSMutableArray!
     
-    override func setUp() async throws {
-        try await super.setUp()
+    @Test func removeDuplicates() async {
+        let (sut, continuation) = AsyncStream.makeStream(of: Int.self)
         
-        sut = StateStreamer<Int>()
-        arr = NSMutableArray()
-    }
-    
-    override func tearDown() async throws {
-        try await super.tearDown()
-        
-        sut = nil
-        arr = nil
-    }
-    
-    func test_streamerRemoveDuplicates() async {
         let task = Task {
-            for await val in sut.removeDuplicates() {
-                arr.add(val)
-            }
+            await sut
+                .removeDuplicates()
+                .reduce(into: [Int]()) { partialResult, value in
+                    partialResult.append(value)
+                }
         }
         
-        sut.yield(1)
-        sut.yield(1)
-        sut.yield(1)
-        sut.finish()
+        continuation.yield(1)
+        continuation.yield(1)
+        continuation.yield(1)
+        continuation.finish()
         
-        await task.value
-        XCTAssertEqual(arr, [1])
+        let result = await task.value
+        #expect(result == [1])
     }
     
-    func test_streamerForEach() async {
+    @Test func forEach() async {
+        let (sut, continuation) = AsyncStream.makeStream(of: Int.self)
+        
         let task = Task {
-            await sut.forEach(arr.add(_:))
+            var result = [Int]()
+            await sut.forEach { result.append($0) }
+            return result
         }
         
-        sut.yield(1)
-        sut.yield(1)
-        sut.yield(1)
-        sut.finish()
+        continuation.yield(1)
+        continuation.yield(1)
+        continuation.yield(1)
+        continuation.finish()
         
-        await task.value
-        XCTAssertEqual(arr, [1,1,1])
-    }
-    
-    func test_forEachTask() async throws {
-        let task = sut.forEachTask(arr.add)
-        
-        sut.yield(1)
-        sut.yield(1)
-        sut.yield(1)
-        sut.finish()
-        
-        try await task.value
-        XCTAssertEqual(arr, [1,1,1])
-    }
-    
-    func test_forEachTaskAsync() async throws {
-        let task = sut.forEachTask(asyncAdd)
-        
-        sut.yield(1)
-        sut.yield(1)
-        sut.yield(1)
-        sut.finish()
-
-        try await task.value
-        XCTAssertEqual(arr, [1,1,1])
-    }
-    
-    private func asyncAdd(_ val: Int) async {
-        arr.add(val)
+        let result = await task.value
+        #expect(result == [1,1,1])
     }
 }
-
-extension NSMutableArray: @unchecked @retroactive Sendable {}
