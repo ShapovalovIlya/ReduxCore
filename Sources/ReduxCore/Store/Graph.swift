@@ -69,7 +69,7 @@ public struct Graph<State, Action>: Sendable {
     ///
     @inlinable
     public var state: State {
-        _read { yield storage.wrapped }
+        storage.wrapped
     }
 
     //MARK: - init(_:)
