@@ -33,22 +33,22 @@ import Foundation
 /// ```
 ///
 /// - Note: ‎`Graph` does not subscribe to state changes. To observe updates, access the latest ‎`Graph` from the parent ‎`Store`.
-public struct Graph<State, Action>: Sendable {
+public struct Graph<State, Action>: Sendable where State: Sendable {
     @usableFromInline
     typealias Dispatcher = @Sendable (any Collection<Action>) -> Void
     
     @usableFromInline
-    final class Storage<Wrapped>: Sendable {
+    final class Storage: Sendable {
         
         @usableFromInline
-        let wrapped: Wrapped
+        let wrapped: State
         
         @inlinable
-        init(_ wrapped: Wrapped) { self.wrapped = wrapped }
+        init(_ wrapped: State) { self.wrapped = wrapped }
     }
     
     @usableFromInline
-    let storage: Storage<State>
+    let storage: Storage
     
     @usableFromInline
     let dispatcher: Dispatcher

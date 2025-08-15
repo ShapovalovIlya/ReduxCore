@@ -247,7 +247,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     //MARK: - Private properties
     private var drivers = Set<GraphStreamer>()
-    private var continuations: [ObjectIdentifier: StreamerContinuation] = .init()
+    private var continuations = [ObjectIdentifier: StreamerContinuation]()
     
     
     //MARK: - init(_:)
