@@ -19,6 +19,11 @@ public extension LazySequenceProtocol {
     ) -> LazyRemoveDuplicatesSequence<Self, T> {
         LazyRemoveDuplicatesSequence(self, identityOf: identityOf)
     }
+    
+    @inlinable
+    func chunked(by size: Int) -> LazyChunkedSequence<Self> {
+        LazyChunkedSequence(maxSize: size, base: self)
+    }
 }
 
 public extension LazySequenceProtocol where Element: Hashable {
