@@ -25,6 +25,7 @@ public struct LazyChunkedSequence<Base: Sequence>: LazySequenceProtocol {
         @inlinable
         public mutating func next() -> Element? {
             var chunk = Element()
+            chunk.reserveCapacity(maxSize)
             
             while let next = base.next(), chunk.count < maxSize {
                 chunk.append(next)
