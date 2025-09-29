@@ -44,26 +44,36 @@ struct ParentDomain: ReducerDomain {
         var saved: Int?
     }
     
-    enum Action {
+    enum Action: Equatable, Sendable {
         case clearSaved
         case child(CounterDomain.Action)
+        
+        static var child: Prism<Self, CounterDomain.Action> {
+            Prism(
+                extract: { action in
+                    guard case let .child(childAction) = action else {
+                        return nil
+                    }
+                    return childAction
+                },
+                embed: Self.child
+            )
+        }
     }
     
     var body: some ReducerOf<Self> {
         ChildReducer(
             state: \.child,
-            action: { action in
-                guard case let .child(childAction) = action else {
-                    return nil
-                }
-                return childAction
-            },
+            prism: Action.child,
             reducer: CounterDomain.init
         )
         Reducer { state, action in
             switch action {
             case .clearSaved:
                 state.saved = nil
+                
+            case let .child(.delegate(toSave)):
+                state.saved = toSave
                 
             case .child:
                 break
@@ -100,15 +110,30 @@ struct ReducerTest {
         #expect(actionAfterDecrement == .delegate(save: 0))
     }
 
-//    @Test func parendSaveChildCalculations() async throws {
-//        var state = ParentDomain.State()
-//        let sut = ParentDomain()
-//        
-//        sut.run(&state, action: .child(.increment))
-//        #expect(state.child.counter == 1)
-//        #expect(state.saved == 1)
-//        
-//        sut.run(&state, action: .clearSaved)
-//        #expect(state.saved == nil)
-//    }
+    @Test func parendSaveChildCalculations() async throws {
+        var state = ParentDomain.State()
+        let sut = ParentDomain()
+        
+        let delegate = try #require(sut.reduce(&state, action: .child(.increment)))
+        #expect(state.child.counter == 1)
+        #expect(delegate == .child(.delegate(save: 1)))
+        
+        #expect(sut.reduce(&state, action: delegate) == nil)
+        #expect(state.saved == 1)
+        
+        sut.run(&state, action: .clearSaved)
+        #expect(state.saved == nil)
+    }
+    
+    @Test func parendSaveChildCalculations_1() async throws {
+        var state = ParentDomain.State()
+        let sut = ParentDomain()
+        
+        sut.run(&state, action: .child(.increment))
+        #expect(state.child.counter == 1)
+        #expect(state.saved == 1)
+        
+        sut.run(&state, action: .clearSaved)
+        #expect(state.saved == nil)
+    }
 }

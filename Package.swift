@@ -14,11 +14,13 @@ let package = Package(
     products: [
         .library(name: "ReduxCore", targets: ["ReduxCore"]),
         .library(name: "ReduxStream", targets: ["ReduxStream"]),
-        .library(name: "ReduxSync", targets: ["ReduxSync"])
+        .library(name: "ReduxSync", targets: ["ReduxSync"]),
+        .library(name: "ReducerDomain", targets: ["ReducerDomain"]),
     ],
     targets: [
         .target(name: "CoWBox"),
         .target(name: "SequenceFX"),
+        .target(name: "ReducerDomain"),
         .target(
             name: "ReduxSync",
             swiftSettings: [
@@ -40,11 +42,17 @@ let package = Package(
                 "StoreThread",
                 "CoWBox",
                 "SequenceFX",
+                "ReducerDomain",
             ],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
         .testTarget(name: "ReduxCoreTests", dependencies: ["ReduxCore"]),
     ]
+//,
+//    swiftLanguageVersions: [
+//        .v5,
+//        .version("6.0")
+//    ]
 )
