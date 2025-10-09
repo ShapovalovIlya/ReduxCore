@@ -320,8 +320,9 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
         if actions.isEmpty { return }
         queue.sync {
             state = actions.reduce(into: state, reducer)
-            drivers.forEach(yield)
-            continuations.forEach(yield)
+            let graph = graph
+            drivers.forEach(yield(graph))
+            continuations.forEach(yield(graph))
             
             // deprecated support
             observers.forEach(notify)
@@ -356,7 +357,7 @@ public extension Store {
     func subscribe(_ streamer: some Streamer) {
         queue.sync {
             continuations.updateValue(streamer.continuation, forKey: streamer.streamerID)
-            yield((streamer.streamerID, streamer.continuation))
+            yield(graph)((streamer.streamerID, streamer.continuation))
         }
     }
     
@@ -428,7 +429,7 @@ public extension Store {
     func install(_ driver: GraphStreamer) {
         queue.sync {
             drivers.insert(driver)
-            yield(driver)
+            yield(graph)(driver)
         }
     }
     
@@ -454,7 +455,7 @@ public extension Store {
     func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         queue.sync { [drivers = builder()] in
             self.drivers.formUnion(drivers)
-            drivers.forEach(yield)
+            drivers.forEach(yield(graph))
         }
     }
     
@@ -540,29 +541,33 @@ public extension Store {
 
 //MARK: - Private methods
 private extension Store {
-    func yield(_ element: [ObjectIdentifier : StreamerContinuation].Element) {
-        switch element.value.yield(graph) {
-        case .terminated:
-            continuations.removeValue(forKey: element.key)
-            
-        case .dropped, .enqueued:
-            break
-            
-        @unknown default:
-            assertionFailure()
+    func yield(_ graph: StoreGraph) -> ([ObjectIdentifier : StreamerContinuation].Element) -> Void {
+        { element in
+            switch element.value.yield(graph) {
+            case .terminated:
+                self.continuations.removeValue(forKey: element.key)
+                
+            case .dropped, .enqueued:
+                break
+                
+            @unknown default:
+                assertionFailure()
+            }
         }
     }
     
-    func yield(_ streamer: GraphStreamer) {
-        switch streamer.continuation.yield(graph) {
-        case .terminated:
-            drivers.remove(streamer)
-            
-        case .dropped, .enqueued:
-            break
-            
-        @unknown default:
-            assertionFailure()
+    func yield(_ graph: StoreGraph) -> (GraphStreamer) -> Void {
+        { streamer in
+            switch streamer.continuation.yield(graph) {
+            case .terminated:
+                self.drivers.remove(streamer)
+                
+            case .dropped, .enqueued:
+                break
+                
+            @unknown default:
+                assertionFailure()
+            }
         }
     }
 }
@@ -591,7 +596,7 @@ public extension Store {
     func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         queue.sync { [streamers = builder()] in
             self.drivers.formUnion(streamers)
-            streamers.forEach(yield)
+            streamers.forEach(yield(graph))
         }
     }
 }
