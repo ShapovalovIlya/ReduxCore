@@ -42,7 +42,8 @@ public extension Collection where Element: Hashable {
 
 public extension Sequence {
     
-    @inlinable func chunked(by size: Int) -> [[Element]] {
+    @inlinable
+    func chunked(by size: Int) -> [[Element]] {
         guard size > 0 else {
             return .init()
         }
@@ -53,19 +54,77 @@ public extension Sequence {
         var chunk = [Element]()
         chunk.reserveCapacity(size)
         
-        for (offset, element) in self.enumerated() {
-            if offset < size || (offset % size) != .zero {
-                chunk.append(consume element)
-                continue
+        var count = 0
+        for element in self {
+            chunk.append(element)
+            count += 1
+            if count == size {
+                result.append(chunk)
+                chunk.removeAll(keepingCapacity: true)
+                count = 0
             }
-            result.append(chunk)
-            chunk.removeAll(keepingCapacity: true)
-            chunk.append(consume element)
         }
         
-        if chunk.isEmpty == false {
-            result.append(consume chunk)
+        if !chunk.isEmpty {
+            result.append(chunk)
         }
         return result
+    }
+    
+    /// Splits the sequence into two arrays based on a predicate, preserving element order.
+    ///
+    /// Elements for which `predicate` returns `true` are collected into the `satisfied`
+    /// array; all other elements go into the `unsatisfied` array. This is a single-pass,
+    /// stable partition that does not mutate the original sequence.
+    ///
+    /// - Parameters:
+    ///   - predicate: A throwing closure that evaluates each element and returns `true`
+    ///                if the element should be placed in `satisfied`, otherwise `false`.
+    ///
+    /// - Returns: A tuple containing:
+    ///   - `satisfied`: All elements that met the predicate.
+    ///   - `unsatisfied`: All elements that did not meet the predicate.
+    ///
+    /// - Throws: Rethrows any error thrown by `predicate`. If an error is thrown,
+    ///           iteration stops immediately and no partial result is returned.
+    ///
+    /// - Complexity: O(n), where n is the length of the sequence. Performs exactly one
+    ///               pass with constant additional work per element.
+    ///
+    /// - Note: The relative order of elements within each returned array is the same
+    ///         as their order in the original sequence (stable partition).
+    ///
+    /// ### Example
+    /// ```swift
+    /// let numbers = [1, 2, 3, 4, 5, 6]
+    /// let result = numbers.partitioned { $0.isMultiple(of: 2) }
+    /// // result.satisfied   == [2, 4, 6]
+    /// // result.unsatisfied == [1, 3, 5]
+    /// ```
+    ///
+    /// ### Example: Throwing predicate
+    /// ```swift
+    /// enum ValidationError: Error { case negative }
+    ///
+    /// let values = [1, -1, 2]
+    /// do {
+    ///     let res = try values.partitioned { value in
+    ///         if value < 0 { throw ValidationError.negative }
+    ///         return value % 2 == 0
+    ///     }
+    ///     // Use res.satisfied / res.unsatisfied
+    /// } catch {
+    ///     // Handle ValidationError.negative
+    /// }
+    /// ```
+    @inlinable
+    func partitioned(
+        by predicate: (Element) throws -> Bool
+    ) rethrows -> (satisfied: [Element], unsutisfied: [Element]) {
+        try reduce(into: ([], [])) { partialResult, element in
+            try predicate(element)
+            ? partialResult.satisfied.append(element)
+            : partialResult.unsutisfied.append(element)
+        }
     }
 }
