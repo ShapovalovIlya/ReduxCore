@@ -9,14 +9,23 @@ import Foundation
 
 public extension Collection {
     
-    @inlinable func chunked(by size: Int) -> [SubSequence] {
-        stride(from: .zero, to: count, by: size).lazy
-            .map { offset -> Range<Self.Index> in
-                let fromIndex = index(startIndex, offsetBy: offset)
-                let toIndex = index(startIndex, offsetBy: Swift.min(offset + size, count))
-                return fromIndex..<toIndex
-            }
-            .map { self[$0] }
+    /// Splits the collection into consecutive `SubSequence` chunks of length `size`.
+    ///
+    /// - Parameters:
+    ///   - size: Maximum number of elements per chunk. Must be greater than 0.
+    /// - Returns: An array of `SubSequence` chunks. The last chunk may be shorter.
+    ///
+    /// - Complexity: O(n).
+    @inlinable
+    func chunked(by size: Int) -> [SubSequence] {
+        if size <= .zero {
+            return []
+        }
+        return stride(from: .zero, to: count, by: size).map { offset in
+            let start = index(startIndex, offsetBy: offset)
+            let end = index(start, offsetBy: size, limitedBy: endIndex) ?? endIndex
+            return self[start..<end]
+        }
     }
     
     @inlinable
