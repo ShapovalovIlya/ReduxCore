@@ -159,7 +159,7 @@ public extension AsyncSequence {
         _ body: @escaping (Element) async throws -> Void
     ) async rethrows {
         for try await element in self {
-            try Task.checkCancellation()
+            if Task.isCancelled { return }
             try await body(element)
         }
     }
@@ -185,26 +185,42 @@ public extension AsyncSequence {
     ///   try await task.value
     ///   ```
     ///
+    @available(*, deprecated, renamed: "task")
     @inlinable
     @discardableResult
     func forEachTask(
         priority: TaskPriority? = nil,
-        _ body: @escaping @Sendable (Element) async -> Void
+        _ body: @escaping @Sendable (Element) async throws -> Void
     ) -> Task<Void, Error> {
         Task(priority: priority) {
             try await self.forEach(body)
         }
     }
     
-    /// Run Iteration over given `AsyncSequence` as part of a new top-level task on behalf of the current actor and
-    /// calls the asynchronous closure on each element in the `async sequence` in the same order as a `for-in` loop.
+    /// Launches a new asynchronous task to perform the given closure on each element of the asynchronous sequence.
+    ///
+    /// This method creates and returns a ``_Concurrency/Task`` that iterates over each element in the asynchronous sequence,
+    /// invoking the provided closure for each element.
     ///
     /// - Parameters:
-    ///   - priority: The priority of the task. Pass nil to use the priority from Task.currentPriority.
-    ///   - body: A asynchronous closure that takes an element of the sequence as a parameter.
+    ///   - priority: The priority of the created task. Defaults to `nil`, which uses the default priority.
+    ///   - body: An asynchronous, sendable closure that takes an element of the sequence as its parameter.
+    /// - Returns: The created `Task<Void, Error>`, which can be awaited or cancelled as needed.
+    /// - Important: If the task is cancelled, iteration stops and a `CancellationError` is thrown.
+    /// - Note: The returned task might be managed by the caller or discarded
+    ///
+    /// ### Example:
+    ///   ```swift
+    ///   let task = asyncSequence.task { element in
+    ///       print(element)
+    ///   }
+    ///   // Optionally await or cancel the task
+    ///   try await task.value
+    ///   ```
+    ///
     @inlinable
     @discardableResult
-    func forEachTask(
+    func task(
         priority: TaskPriority? = nil,
         _ body: @escaping @Sendable (Element) async throws -> Void
     ) -> Task<Void, Error> {
@@ -250,9 +266,61 @@ public extension AsyncSequence {
     ///   try await task.value
     ///   ```
     ///
+    @available(*, deprecated, renamed: "task")
     @inlinable
     @discardableResult
     func forEachTask(
+        priority: TaskPriority? = nil,
+        onNext: @escaping @Sendable (Element) async throws -> Void,
+        onCancel: @escaping @Sendable () async throws -> Void
+    ) -> Task<Void, Error> {
+        Task(priority: priority) {
+            try await self.forEach(onNext)
+            try Task.checkCancellation()
+            try await onCancel()
+        }
+    }
+    
+    /// Run Iteration over given `AsyncSequence` as part of a new top-level task on behalf of the current actor and
+    /// calls the asynchronous closure on each element in the `async sequence` in the same order as a `for-in` loop.
+    ///
+    /// - Parameters:
+    ///   - priority: The priority of the task. Pass nil to use the priority from Task.currentPriority.
+    ///   - onNext: A asynchronous closure that takes an element of the sequence as a parameter.
+    ///   - onCancel: A asynchronous closure that will be called after sequence is terminated.
+    
+    /// Launches a new asynchronous task to process each element of the asynchronous sequence, with custom cancellation handling.
+    ///
+    /// This method creates and returns a ``_Concurrency/Task`` that iterates over each element in the asynchronous sequence,
+    /// invoking the `onNext` closure for each element.
+    /// After processing all elements,  the `onCancel` closure is invoked to allow for custom cancellation or cleanup logic.
+    ///
+    /// - Parameters:
+    ///   - priority: The priority of the created task. Defaults to `nil`, which uses the default priority.
+    ///   - onNext: An asynchronous, sendable closure that is called for each element in the sequence.
+    ///   - onCancel: An asynchronous, sendable closure that is called after processing all elements.
+    /// - Returns: The created `Task<Void, Error>`, which can be awaited or cancelled as needed.
+    /// - Throws: Rethrows any error thrown by `onNext`, `onCancel`, or the sequence’s asynchronous iterator.
+    /// - Important: If the task is cancelled manualy or element processing throws error, `onCancel` is never be invoked.
+    /// - Note: The returned task might be managed by the caller or discarded.
+    /// .
+    /// ### Example:
+    ///   ```swift
+    ///   let task = asyncSequence.task(
+    ///       onNext: { element in
+    ///           print(element)
+    ///       },
+    ///       onCancel: {
+    ///           print("Task completed.")
+    ///       }
+    ///   )
+    ///   // Optionally await or cancel the task
+    ///   try await task.value
+    ///   ```
+    ///
+    @inlinable
+    @discardableResult
+    func task(
         priority: TaskPriority? = nil,
         onNext: @escaping @Sendable (Element) async throws -> Void,
         onCancel: @escaping @Sendable () async throws -> Void
