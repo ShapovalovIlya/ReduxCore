@@ -8,7 +8,7 @@
 import Foundation
 
 /// Namespace for custom async sequences
-public enum ReduxStream { }
+public enum SequenceFX { }
 
 public extension AsyncSequence where Element: Equatable {
     
@@ -27,8 +27,8 @@ public extension AsyncSequence where Element: Equatable {
     /// }
     /// ```
     @inlinable
-    func removeDuplicates() -> ReduxStream.RemoveDuplicates<Self> {
-        ReduxStream.RemoveDuplicates(self) { $0 == $1 }
+    func removeDuplicates() -> SequenceFX.RemoveDuplicates<Self> {
+        SequenceFX.RemoveDuplicates(self) { $0 == $1 }
     }
 }
 
@@ -54,8 +54,8 @@ public extension AsyncSequence {
     @inlinable
     func removeDuplicates(
         by predicate: @escaping (Element, Element) -> Bool
-    ) -> ReduxStream.RemoveDuplicates<Self> {
-        ReduxStream.RemoveDuplicates(self, predicate: predicate)
+    ) -> SequenceFX.RemoveDuplicates<Self> {
+        SequenceFX.RemoveDuplicates(self, predicate: predicate)
     }
     
     /// Returns an asynchronous sequence that omits consecutive duplicate elements, using the provided error-throwing predicate for comparison.
@@ -81,8 +81,8 @@ public extension AsyncSequence {
     @inlinable
     func removeDuplicates(
         by predicate: @escaping (Element, Element) throws -> Bool
-    ) -> ReduxStream.ThrowingRemoveDuplicates<Self> {
-        ReduxStream.ThrowingRemoveDuplicates(self, predicate: predicate)
+    ) -> SequenceFX.ThrowingRemoveDuplicates<Self> {
+        SequenceFX.ThrowingRemoveDuplicates(self, predicate: predicate)
     }
     
     /// Returns an asynchronous sequence that combines each element from the current sequence with a weakly retained object.
@@ -108,8 +108,8 @@ public extension AsyncSequence {
     @inlinable
     func withUnretained<Unretained: AnyObject>(
         _ object: Unretained
-    ) -> ReduxStream.WithUnretained<Self, Unretained> {
-        ReduxStream.WithUnretained(base: self, unretained: object)
+    ) -> SequenceFX.WithUnretained<Self, Unretained> {
+        SequenceFX.WithUnretained(base: self, unretained: object)
     }
     
     /// Returns a throttled asynchronous sequence that emits elements no more frequently than the specified interval.
@@ -129,8 +129,8 @@ public extension AsyncSequence {
     /// }
     /// ```
     @inlinable
-    func throttle(for interval: TimeInterval) -> ReduxStream.Throttle<Self> {
-        ReduxStream.Throttle(base: self, interval: interval)
+    func throttle(for interval: TimeInterval) -> SequenceFX.Throttle<Self> {
+        SequenceFX.Throttle(base: self, interval: interval)
     }
     
     //MARK: - Methods
@@ -192,9 +192,7 @@ public extension AsyncSequence {
         priority: TaskPriority? = nil,
         _ body: @escaping @Sendable (Element) async throws -> Void
     ) -> Task<Void, Error> {
-        Task(priority: priority) {
-            try await self.forEach(body)
-        }
+        task(priority: priority, body)
     }
     
     /// Launches a new asynchronous task to perform the given closure on each element of the asynchronous sequence.
@@ -274,11 +272,7 @@ public extension AsyncSequence {
         onNext: @escaping @Sendable (Element) async throws -> Void,
         onCancel: @escaping @Sendable () async throws -> Void
     ) -> Task<Void, Error> {
-        Task(priority: priority) {
-            try await self.forEach(onNext)
-            try Task.checkCancellation()
-            try await onCancel()
-        }
+        task(priority: priority, onNext: onNext, onCancel: onCancel)
     }
     
     /// Run Iteration over given `AsyncSequence` as part of a new top-level task on behalf of the current actor and

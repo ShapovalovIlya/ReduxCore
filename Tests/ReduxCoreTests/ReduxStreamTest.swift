@@ -7,6 +7,7 @@
 
 import Foundation
 import Testing
+import SequenceFX
 @testable import ReduxStream
 
 struct ReduxStreamTest {
@@ -30,12 +31,12 @@ struct ReduxStreamTest {
         #expect(expexted.elementsEqual(result))
     }
     
-    @Test func throttleSequence() async throws {
+    @Test(arguments: [TimeInterval(0.3), .infinity, .nan, .zero, .greatestFiniteMagnitude, -1])
+    func throttleSequence(_ interval: TimeInterval) async throws {
         let sut = StateStreamer<Date>()
-        let interval = 0.3
         
         let task = Task {
-            await sut
+            try await sut
                 .throttle(for: interval)
                 .reduce(into: [Date]()) { partialResult, date in
                     partialResult.append(date)
@@ -47,21 +48,20 @@ struct ReduxStreamTest {
             sut.continuation.yield(Date())
         }
         sut.finish()
-                
-        var events = await task.value
-        var intervals = [TimeInterval]()
         
-        let start = events.removeFirst()
-        
-        _ = events
-            .reduce(start) { prev, next in
-                intervals.append(prev.distance(to: next))
-                return next
+        guard interval.isEqual(to: 0.3) || interval.isEqual(to: .zero) else {
+            do {
+                _ = try await task.value
+            } catch {
+                #expect(error is SleepError)
             }
+            return
+        }
+        let events = try await task.value
+        let intervals = dump(zip(events, events.dropFirst()).map { $1.timeIntervalSince($0) }, name: "Intervals for \(interval)")
+        let leastInterval = try #require(intervals.min())
         
-        let least = try #require(intervals.min())
-        
-        #expect(least >= interval)
+        #expect(interval.isLessThanOrEqualTo(leastInterval))
     }
     
     @Test func withUnretained() async throws {

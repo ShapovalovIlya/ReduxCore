@@ -5,7 +5,7 @@
 //  Created by Илья Шаповалов on 12.05.2024.
 //  Source: https://github.com/apple/swift-async-algorithms/blob/main/Sources/AsyncAlgorithms/AsyncRemoveDuplicatesSequence.swift
 
-public extension ReduxStream {
+public extension SequenceFX {
     //MARK: - RemoveDuplicates
     
     /// An asynchronous sequence that omits repeated elements by testing them with a predicate.
@@ -54,7 +54,7 @@ public extension ReduxStream {
     }
 }
 
-public extension ReduxStream.RemoveDuplicates {
+public extension SequenceFX.RemoveDuplicates {
     //MARK: - Iterator
     
     /// The iterator for a `RemoveDuplicates` instance.
@@ -99,4 +99,4 @@ public extension ReduxStream.RemoveDuplicates {
 }
 
 @available(*, unavailable)
-extension ReduxStream.RemoveDuplicates.Iterator: Sendable { }
+extension SequenceFX.RemoveDuplicates.Iterator: Sendable { }

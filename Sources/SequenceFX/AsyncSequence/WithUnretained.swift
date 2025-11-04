@@ -7,7 +7,7 @@
 
 import Foundation
 
-public extension ReduxStream {
+public extension SequenceFX {
     //MARK: - WithUnretained
 
     /// An asynchronous sequence that combines each element from an upstream async sequence with a weakly retained object.
@@ -59,7 +59,7 @@ public extension ReduxStream {
     }
 }
 
-public extension ReduxStream.WithUnretained {
+public extension SequenceFX.WithUnretained {
     //MARK: - Iterator
 
     /// The iterator for a `WithUnretained` instance.
@@ -105,7 +105,7 @@ public extension ReduxStream.WithUnretained {
     }
 }
 
-extension ReduxStream.WithUnretained: Sendable where Base: Sendable, Object: Sendable {}
+extension SequenceFX.WithUnretained: Sendable where Base: Sendable, Object: Sendable {}
 
 @available(*, unavailable)
-extension ReduxStream.WithUnretained.Iterator: Sendable {}
+extension SequenceFX.WithUnretained.Iterator: Sendable {}

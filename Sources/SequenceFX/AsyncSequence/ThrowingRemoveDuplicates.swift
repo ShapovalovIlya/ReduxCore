@@ -7,7 +7,7 @@
 
 import Foundation
 
-public extension ReduxStream {
+public extension SequenceFX {
     //MARK: - ThrowingRemoveDuplicates
     
     /// An asynchronous sequence that omits repeated elements by testing them with an error-throwing predicate.
@@ -60,7 +60,7 @@ public extension ReduxStream {
     }
 }
 
-extension ReduxStream.ThrowingRemoveDuplicates {
+extension SequenceFX.ThrowingRemoveDuplicates {
     //MARK: - Iterator
     
     /// The iterator for a `ThrowingRemoveDuplicates` instance.
@@ -109,4 +109,4 @@ extension ReduxStream.ThrowingRemoveDuplicates {
 }
 
 @available(*, unavailable)
-extension ReduxStream.ThrowingRemoveDuplicates.Iterator: Sendable { }
+extension SequenceFX.ThrowingRemoveDuplicates.Iterator: Sendable { }

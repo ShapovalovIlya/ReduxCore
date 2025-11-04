@@ -29,6 +29,9 @@ let package = Package(
         ),
         .target(
             name: "ReduxStream",
+            dependencies: [
+                "SequenceFX"
+            ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
             ]

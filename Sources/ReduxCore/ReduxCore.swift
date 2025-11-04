@@ -9,5 +9,6 @@ import Foundation
 
 @_exported import ReduxStream
 @_exported import ReduxSync
+@_exported import SequenceFX
 
 extension StateStreamer: ObjectStreamer {}

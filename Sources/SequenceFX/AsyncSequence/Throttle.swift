@@ -7,7 +7,7 @@
 
 import Foundation
 
-public extension ReduxStream {
+public extension SequenceFX {
     
     /// An `AsyncSequence` that throttles the emission of elements from its base sequence.
     ///
@@ -48,7 +48,7 @@ public extension ReduxStream {
     }
 }
 
-public extension ReduxStream.Throttle {
+public extension SequenceFX.Throttle {
     //MARK: - AsyncIteratorProtocol
     
     /// An iterator that produces elements from a throttled async sequence.
@@ -76,7 +76,7 @@ public extension ReduxStream.Throttle {
         ///
         /// - Returns: The next element, or `nil` if the sequence is finished.
         @inlinable
-        public mutating func next() async rethrows -> Element? {
+        public mutating func next() async throws -> Element? {
             var cached: Element?
             let start = last ?? Date()
             
@@ -128,7 +128,7 @@ public extension ReduxStream.Throttle {
     }
 }
 
-extension ReduxStream.Throttle: Sendable where Base: Sendable, Element: Sendable {}
+extension SequenceFX.Throttle: Sendable where Base: Sendable, Element: Sendable {}
 
 @available(*, unavailable)
-extension ReduxStream.Throttle.Iterator: Sendable {}
+extension SequenceFX.Throttle.Iterator: Sendable {}
