@@ -6,6 +6,7 @@
 //
 
 import Foundation
+@_exported import class Combine.AnyCancellable
 
 /// Errors thrown by `Task.sleep(seconds:)` for invalid parameters.
 ///
@@ -88,5 +89,54 @@ public extension Task where Success == Never, Failure == Never {
         let fair = UInt64.init(nanosec.rounded(.toNearestOrAwayFromZero))
         
         try await sleep(nanoseconds: fair)
+    }
+}
+
+public extension Task {
+    /// Returns an `AnyCancellable` that cancels this task when the cancellable is deinitialized
+    /// or explicitly canceled.
+    ///
+    /// The returned cancellable simply calls `Task.cancel()` on this task.
+    ///
+    /// - Important:
+    ///   - Canceling the `AnyCancellable` cancels the underlying task.
+    ///   - The cancellable does not wait for task completion; it only triggers cancellation.
+    ///   - You are responsible for retaining the cancellable for as long as you want the task
+    ///     to be cancelable.
+    ///
+    /// - Returns: A type-erased cancellable bound to this task's `cancel()` action.
+    @inlinable
+    var asCancellable: AnyCancellable {
+        AnyCancellable(self.cancel)
+    }
+    
+    /// Stores this task’s `AnyCancellable` representation in the given array.
+    ///
+    /// This is a convenience for managing task cancellations with a collection of cancellables.
+    ///
+    /// - Parameter array: A mutable array of `AnyCancellable` in which the task’s cancellable
+    ///   will be appended.
+    ///
+    /// - Note: The task will be canceled when an item referencing it in `array` is canceled
+    ///   or deinitialized. Keep the array alive  for consistent lifetime management.
+    @inlinable
+    func store(in array: inout Array<AnyCancellable>) {
+        array.append(self.asCancellable)
+    }
+    
+    /// Stores this task’s `AnyCancellable` representation in the given set.
+    ///
+    /// Use this when you prefer a set for unique membership semantics. The set will retain the
+    /// cancellable, and cancel the underlying task when the stored `AnyCancellable` is canceled
+    /// or deinitialized.
+    ///
+    /// - Parameter set: A mutable set of `AnyCancellable` in which the task’s cancellable
+    ///   will be inserted.
+    ///
+    /// - Important: `AnyCancellable` conforms to `Hashable`, but uniqueness is based on its identity.
+    ///   Inserting multiple cancellables from different tasks will store them as distinct entries.
+    @inlinable
+    func store(in set: inout Set<AnyCancellable>) {
+        set.insert(self.asCancellable)
     }
 }
