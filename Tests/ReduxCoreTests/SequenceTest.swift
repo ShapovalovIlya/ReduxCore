@@ -31,6 +31,18 @@ struct SequenceTest {
         #expect(sut.last?.count == 5)
     }
     
+    @Test func lazyChuckedSequence() async throws {
+        let sut: LazyChunkedSequence = (1...95).lazy.chunked(by: 10)
+        
+        let arr = Array(sut)
+        
+        #expect(arr.count == 10)
+        arr.forEach { chunk in
+            #expect(chunk.count <= 10)
+        }
+        #expect(arr.last?.count == 5)
+    }
+    
     @Test func removeDuplicates() async throws {
         let sut = [1,1,2,2,3,3].removedDuplicates()
         
