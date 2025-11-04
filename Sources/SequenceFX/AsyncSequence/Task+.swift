@@ -7,11 +7,25 @@
 
 import Foundation
 
-/// Errors for invalid sleep parameters.
+/// Errors thrown by `Task.sleep(seconds:)` for invalid parameters.
+///
+/// These cases provide descriptive messages via `CustomStringConvertible`
+/// and are equatable for testing.
+///
+/// - Note: All cases include the offending `TimeInterval` value for context.
 public enum SleepError: Error, CustomStringConvertible, Equatable {
+    /// The provided value is not finite (e.g., `+∞` or `-∞`).
     case notFinite(TimeInterval)
+    
+    /// The provided value is `NaN`.
     case isNaN(TimeInterval)
+    
+    /// The provided value is negative.
     case negative(TimeInterval)
+    
+    /// The provided value is too large to represent as nanoseconds.
+    /// Typically occurs when `seconds * 1_000_000_000` exceeds `UInt64.max`
+    /// or becomes infinite.
     case overflow(TimeInterval)
     
     @inlinable
@@ -31,13 +45,24 @@ public enum SleepError: Error, CustomStringConvertible, Equatable {
 
 public extension Task where Success == Never, Failure == Never {
     
-    /// Stops execution of `Task` for the specified time. Doesn't slow down the flow.
+    /// Suspends the current task for the specified duration in seconds.
     ///
-    /// The method checks the passed value for `isInfinite` and `isNaN`.
-    /// If the passed value in `seconds <= 0`, then the function will exit immediately.
+    /// This is a convenience wrapper around `Task.sleep(nanoseconds:)` that
+    /// validates and converts a `TimeInterval` (seconds) to nanoseconds.
     ///
-    /// - Parameter interval: the time for which the current `Task` should suspend its process.
-    /// In seconds.
+    /// - Behavior:
+    ///   - If `seconds == 0`, the function returns immediately without suspension.
+    ///   - Rounding uses `.toNearestOrAwayFromZero` to map fractional seconds to the nearest nanosecond in a stable way.
+    ///
+    /// - Parameter seconds: The duration to sleep, expressed in seconds.
+    ///
+    /// - Throws: A `SleepError` when the provided `seconds` is invalid.
+    ///
+    /// - Important: Suspension duration is approximate and subject to system scheduling.
+    ///   The task may resume slightly later than requested due to timer resolution,
+    ///   runtime behavior, or cooperative scheduling.
+    ///
+    /// - SeeAlso: `Task.sleep(nanoseconds:)`
     @inlinable
     static func sleep(seconds: TimeInterval) async throws {
         if seconds.isEqual(to: .zero) {
