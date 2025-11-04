@@ -13,14 +13,14 @@ import Foundation
 /// occurrence of each unique identity, as determined by `identityOf`. Subsequent elements whose
 /// computed identity has already been seen are skipped.
 ///
-/// - Characteristics:
+///### Characteristics:
 ///   - Lazy: Elements are pulled from `base` only during iteration.
 ///   - Order-preserving (first occurrence): The first element for each identity is yielded in the order
 ///     they appear in `base`.
 ///   - Single-pass: Iteration consumes the base sequence; restarting requires a new sequence.
 ///   - Configurable identity: Any `Hashable` identity can be used (e.g., a key path, ID field, normalized value).
 ///
-/// - Example:
+///### Example:
 /// ```swift
 /// struct User { let id: Int; let name: String }
 /// let users = [User(id: 1, name: "A"), User(id: 2, name: "B"), User(id: 1, name: "A2")]

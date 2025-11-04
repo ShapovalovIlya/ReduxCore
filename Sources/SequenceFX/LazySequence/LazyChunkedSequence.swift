@@ -13,14 +13,14 @@ import Foundation
 /// of up to `maxSize` elements per iteration. The last chunk may contain fewer elements
 /// if the base sequence ends before filling it.
 ///
-/// - Characteristics:
+///### Characteristics:
 ///   - Lazy: Elements are pulled from `base` only when iterating.
 ///   - Non-owning: Does not copy the entire base sequence; it reads via the base iterator.
 ///   - Fixed upper bound: Each emitted chunk has `count <= maxSize`.
 ///   - Order-preserving: Elements retain their original order within chunks.
 ///   - Single-pass: Iteration consumes the base sequence; restarting requires a new sequence.
 ///
-/// - Example:
+///### Example:
 /// ```swift
 /// let numbers = 1...10
 /// let chunks = LazyChunkedSequence(maxSize: 3, base: numbers)

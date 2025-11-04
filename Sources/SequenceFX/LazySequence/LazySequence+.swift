@@ -23,7 +23,7 @@ public extension LazySequenceProtocol {
     /// - Returns: A lazy sequence that emits each distinct element once, preserving the order
     ///   of their first appearance.
     ///
-    /// - Characteristics:
+    ///### Characteristics:
     ///   - Lazy: Elements are pulled on demand during iteration; the base sequence is not eagerly consumed.
     ///   - Order-preserving (first occurrence): The first encounter of each unique element is retained.
     ///   - Single-pass: Iteration consumes the base; to iterate again, recreate the sequence.
@@ -35,7 +35,7 @@ public extension LazySequenceProtocol {
     /// - Important:
     ///   - Requires `Element` to be `Hashable` (and typically `Equatable`) so duplicates can be detected correctly.
     ///
-    /// - Example:
+    ///### Example:
     /// ```swift
     /// let values = [1, 2, 2, 3, 1, 4].lazy
     /// let unique = values.removedDuplicates()
@@ -57,7 +57,7 @@ public extension LazySequenceProtocol {
     /// - Parameters:
     ///   - size: The maximum number of elements per emitted chunk.
     ///
-    /// - Behavior:
+    ///### Behavior:
     ///   - Elements are pulled on demand (lazy); the base sequence is not eagerly consumed.
     ///   - Chunks preserve input order and are contiguous.
     ///
@@ -80,7 +80,7 @@ public extension LazySequenceProtocol where Element: Hashable {
     /// - Returns: A lazy sequence that emits each distinct element once, preserving the order
     ///   of their first appearance.
     ///
-    /// - Characteristics:
+    ///### Characteristics:
     ///   - Lazy: Elements are pulled on demand during iteration; the base sequence is not eagerly consumed.
     ///   - Order-preserving (first occurrence): The first encounter of each unique element is retained.
     ///   - Single-pass: Iteration consumes the base; to iterate again, recreate the sequence.
@@ -92,7 +92,7 @@ public extension LazySequenceProtocol where Element: Hashable {
     /// - Important:
     ///   - Requires `Element` to be `Hashable` (and typically `Equatable`) so duplicates can be detected correctly.
     ///
-    /// - Example:
+    ///### Example:
     /// ```swift
     /// let values = [1, 2, 2, 3, 1, 4].lazy
     /// let unique = values.removedDuplicates()
