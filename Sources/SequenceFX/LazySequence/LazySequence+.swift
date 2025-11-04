@@ -20,6 +20,18 @@ public extension LazySequenceProtocol {
         LazyRemoveDuplicatesSequence(self, identityOf: identityOf)
     }
     
+    /// Lazily groups elements of this sequence into contiguous chunks of at most `size` elements.
+    ///
+    /// - Parameters:
+    ///   - size: The maximum number of elements per emitted chunk.
+    ///
+    /// - Behavior:
+    ///   - Elements are pulled on demand (lazy); the base sequence is not eagerly consumed.
+    ///   - Chunks preserve input order and are contiguous.
+    ///
+    /// - Complexity:
+    ///   - Creating the sequcence: O(1)
+    ///   - Iteration: O(k) per chunk where `k <= size`, total O(n) for `n` elements.
     @inlinable
     func chunked(by size: Int) -> LazyChunkedSequence<Self> {
         LazyChunkedSequence(maxSize: size, base: self)
