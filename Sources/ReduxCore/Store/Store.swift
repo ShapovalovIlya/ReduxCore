@@ -318,8 +318,10 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     @usableFromInline
     func dispatcher(_ actions: some Collection<Action>) {
         if actions.isEmpty { return }
-        queue.sync {
+        DispatchQueue.main.async {
             self.objectWillChange.send()
+        }
+        queue.sync {
             state = actions.reduce(into: state, reducer)
             let graph = graph
             drivers.forEach(yield(graph))
