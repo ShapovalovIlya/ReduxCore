@@ -216,7 +216,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     public let reducer: Reducer
     
     @usableFromInline
-    @Published private(set) var state: State
+    private(set) var state: State
     
     /// A computed property that provides a ‎``StoreGraph``—an abstraction encapsulating the current state and a dispatcher for actions.
     ///
@@ -319,6 +319,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     func dispatcher(_ actions: some Collection<Action>) {
         if actions.isEmpty { return }
         queue.sync {
+            self.objectWillChange.send()
             state = actions.reduce(into: state, reducer)
             let graph = graph
             drivers.forEach(yield(graph))
