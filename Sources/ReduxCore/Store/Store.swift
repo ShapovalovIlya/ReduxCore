@@ -246,8 +246,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     }
     
     //MARK: - Private properties
-    private var drivers = Set<GraphStreamer>()
-    private var continuations = [ObjectIdentifier: StreamerContinuation]()
+    private var continuations = [AnyHashable: StreamerContinuation]()
     
     
     //MARK: - init(_:)
@@ -324,7 +323,6 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
         queue.sync {
             state = actions.reduce(into: state, reducer)
             let graph = graph
-            drivers.forEach(yield(graph))
             continuations.forEach(yield(graph))
             
             // deprecated support
@@ -361,6 +359,25 @@ public extension Store {
         queue.sync {
             continuations.updateValue(streamer.continuation, forKey: streamer.streamerID)
             yield(graph)((streamer.streamerID, streamer.continuation))
+        }
+    }
+    
+    func stateStream(
+        for listener: AnyObject,
+        buffering policy: AsyncStream<StoreGraph>.Continuation.BufferingPolicy = .unbounded
+    ) -> AsyncStream<StoreGraph> {
+        let (stream, continuation) = AsyncStream.makeStream(of: StoreGraph.self, bufferingPolicy: policy)
+        let id = ObjectIdentifier(listener)
+        return queue.sync {
+            continuations[id] = continuation
+            continuation.yield(graph)
+            return stream
+        }
+    }
+    
+    func unsubscribe(_ listener: AnyObject) {
+        queue.sync {
+            continuations.removeValue(forKey: ObjectIdentifier(listener))?.finish()
         }
     }
     
@@ -431,8 +448,8 @@ public extension Store {
     ///
     func install(_ driver: GraphStreamer) {
         queue.sync {
-            drivers.insert(driver)
-            yield(graph)(driver)
+            continuations[driver] = driver.continuation
+            continuations[driver]?.yield(graph)
         }
     }
     
@@ -456,8 +473,9 @@ public extension Store {
     /// - Important: The store retains all installed drivers. To remove a driver, call ``uninstall(_:)`` with the specific driver instance.
     ///
     func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
-        queue.sync { [drivers = builder()] in
-            self.drivers.formUnion(drivers)
+        let drivers = Dictionary(builder().map { ($0, $0.continuation) }) { $1 }
+        queue.sync {
+            self.continuations.merge(drivers) { $1 }
             drivers.forEach(yield(graph))
         }
     }
@@ -481,7 +499,12 @@ public extension Store {
     ///
     @discardableResult
     func uninstall(_ driver: GraphStreamer) -> GraphStreamer? {
-        queue.sync { drivers.remove(driver) }
+        queue.sync {
+            guard continuations.removeValue(forKey: driver) != nil else {
+                return nil
+            }
+            return driver
+        }
     }
     
     /// Checks whether a given ``GraphStreamer`` (driver) is currently installed and subscribed to the ``Store``.
@@ -500,7 +523,7 @@ public extension Store {
     /// ```
     ///
     func contains(driver: GraphStreamer) -> Bool {
-        queue.sync { drivers.contains(driver) }
+        queue.sync { continuations[driver] != nil }
     }
     
     /// Dispatches a single action to the store for processing.
@@ -544,26 +567,11 @@ public extension Store {
 
 //MARK: - Private methods
 private extension Store {
-    func yield(_ graph: StoreGraph) -> ([ObjectIdentifier : StreamerContinuation].Element) -> Void {
+    func yield(_ graph: StoreGraph) -> ([AnyHashable : StreamerContinuation].Element) -> Void {
         { element in
             switch element.value.yield(graph) {
             case .terminated:
                 self.continuations.removeValue(forKey: element.key)
-                
-            case .dropped, .enqueued:
-                break
-                
-            @unknown default:
-                assertionFailure()
-            }
-        }
-    }
-    
-    func yield(_ graph: StoreGraph) -> (GraphStreamer) -> Void {
-        { streamer in
-            switch streamer.continuation.yield(graph) {
-            case .terminated:
-                self.drivers.remove(streamer)
                 
             case .dropped, .enqueued:
                 break
@@ -597,9 +605,6 @@ public extension Store {
     
     @available(*, deprecated, renamed: "installAll")
     func subscribe(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
-        queue.sync { [streamers = builder()] in
-            self.drivers.formUnion(streamers)
-            streamers.forEach(yield(graph))
-        }
+        installAll(builder)
     }
 }
