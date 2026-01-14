@@ -550,6 +550,7 @@ public extension Store {
     /// ```
     ///
     @inlinable
+    @Sendable
     func dispatch(_ action: Action) {
         dispatcher(CollectionOfOne(action))
     }
@@ -569,6 +570,7 @@ public extension Store {
     /// ```
     ///
     @inlinable
+    @Sendable
     func dispatch(contentsOf s: some Sequence<Action>) {
         dispatcher(Array(s))
     }
