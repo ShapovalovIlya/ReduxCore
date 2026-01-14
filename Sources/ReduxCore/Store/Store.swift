@@ -246,7 +246,8 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     }
     
     //MARK: - Private properties
-    private var continuations = [AnyHashable: StreamerContinuation]()
+    @usableFromInline
+    private(set) var continuations = [AnyHashable: StreamerContinuation]()
     
     
     //MARK: - init(_:)
@@ -362,6 +363,7 @@ public extension Store {
         }
     }
     
+    @inlinable
     func stateStream(
         for listener: AnyObject,
         buffering policy: AsyncStream<StoreGraph>.Continuation.BufferingPolicy = .unbounded
@@ -375,9 +377,11 @@ public extension Store {
         }
     }
     
-    func unsubscribe(_ listener: AnyObject) {
+    @inlinable
+    func finishStream(for listener: AnyObject) {
+        let id = ObjectIdentifier(listener)
         queue.sync {
-            continuations.removeValue(forKey: ObjectIdentifier(listener))?.finish()
+            continuations.removeValue(forKey: id)?.finish()
         }
     }
     
@@ -397,6 +401,7 @@ public extension Store {
     /// store.unsubscribe(streamer)
     /// ```
     ///
+    @inlinable
     @discardableResult
     func unsubscribe(_ streamer: some Streamer) -> Bool {
         queue.sync {
@@ -421,6 +426,7 @@ public extension Store {
     /// }
     /// ```
     ///
+    @inlinable
     func contains(streamer: some Streamer) -> Bool {
         queue.sync {
             continuations[streamer.streamerID] != nil
@@ -446,6 +452,7 @@ public extension Store {
     /// store.install(driver)
     /// ```
     ///
+    @inlinable
     func install(_ driver: GraphStreamer) {
         queue.sync {
             continuations[driver] = driver.continuation
@@ -497,6 +504,7 @@ public extension Store {
     /// }
     /// ```
     ///
+    @inlinable
     @discardableResult
     func uninstall(_ driver: GraphStreamer) -> GraphStreamer? {
         queue.sync {
@@ -522,6 +530,7 @@ public extension Store {
     /// }
     /// ```
     ///
+    @inlinable
     func contains(driver: GraphStreamer) -> Bool {
         queue.sync { continuations[driver] != nil }
     }
