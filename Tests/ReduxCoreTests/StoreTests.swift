@@ -11,7 +11,7 @@ import ReduxCore
 
 struct StoreTests {
     typealias Sut = Store<Int, Int>
-    typealias SutGraph = Sut.StoreGraph
+    typealias SutGraph = Sut.Snapshot
     typealias Streamer = StateStreamer<SutGraph>
     
     @Test func storeDrivers() async throws {
@@ -65,9 +65,9 @@ struct StoreTests {
     @Test func graphDispatchSingleAction() async throws {
         let sut = makeSUT()
         
-        sut.graph.dispatch(1)
-        sut.graph.dispatch(1)
-        sut.graph.dispatch(1)
+        sut.snapshot.dispatch(1)
+        sut.snapshot.dispatch(1)
+        sut.snapshot.dispatch(1)
         
         #expect(sut.state == 3)
     }
@@ -75,8 +75,8 @@ struct StoreTests {
     @Test func graphDispatchMultipleActions() async throws {
         let sut = makeSUT()
         
-        sut.graph.dispatch(1, 1, 1)
-        sut.graph.dispatch(contentsOf: [1,1,1])
+        sut.snapshot.dispatch(1, 1, 1)
+        sut.snapshot.dispatch(contentsOf: [1,1,1])
                 
         #expect(sut.state == 6)
     }
@@ -87,12 +87,12 @@ struct StoreTests {
         await withTaskGroup(of: Void.self) { group in
             group.addTask(priority: .high) {
                 for _ in 0...50 {
-                    sut.graph.dispatch(1)
+                    sut.snapshot.dispatch(1)
                 }
             }
             group.addTask(priority: .low) {
                 for _ in 0...50 {
-                    sut.graph.dispatch(1)
+                    sut.snapshot.dispatch(1)
                 }
             }
             await group.waitForAll()
@@ -148,7 +148,7 @@ struct StoreTests {
                 }
         }
         
-        actions.forEach(sut.graph.dispatch)
+        actions.forEach(sut.snapshot.dispatch)
         driver.continuation.finish()
         
         let result = await task.value
@@ -168,7 +168,7 @@ struct StoreTests {
                 .reduce(into: [Int]()) { $0.append($1) }
         }
         
-        sut.graph.dispatch(contentsOf: actions)
+        sut.snapshot.dispatch(contentsOf: actions)
         driver.continuation.finish()
         
         let result = await task.value
@@ -188,7 +188,7 @@ struct StoreTests {
                 .reduce(into: [Int]()) { $0.append($1) }
         }
 
-        actions.forEach(sut.graph.dispatch)
+        actions.forEach(sut.snapshot.dispatch)
         streamer.continuation.finish()
         
         let result = await task.value
@@ -208,7 +208,7 @@ struct StoreTests {
             }
         }
         
-        sut.graph.dispatch(contentsOf: actions)
+        sut.snapshot.dispatch(contentsOf: actions)
         streamer.continuation.finish()
         
         let result = await task.value

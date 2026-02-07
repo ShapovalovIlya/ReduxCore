@@ -100,24 +100,7 @@ import StoreThread
 public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     //MARK: - Aliases
     
-    /// A type alias representing the graph abstraction of the store's current state and dispatcher.
-    ///
-    /// `StoreGraph` is a convenience alias for `Graph<State, Action>`, encapsulating both the current state
-    /// and a dispatcher for sending actions. This abstraction allows you to pass around a value type that
-    /// provides read-only access to the state and the ability to dispatch actions, without exposing the full store.
-    ///
-    /// - Note: Use `StoreGraph` when you want to provide child components or views with access to the current state
-    ///   and dispatching capabilities in a type-safe and encapsulated manner.
-    ///
-    /// ### Example:
-    /// ```swift
-    /// let graph: Store<MyState, MyAction>.GraphStore = store.graph
-    /// print(graph.state) // Access the current state
-    /// graph.dispatch(.increment) // Dispatch an action
-    /// ```
-    ///
     public typealias StoreGraph = Graph<State, Action>
-    
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
     /// The `Reducer` defines the signature for a pure function that takes the current state (as an inout parameter)
@@ -166,11 +149,11 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// }
     /// ```
     ///
-    public typealias GraphStreamer = StateStreamer<StoreGraph>
+    public typealias GraphStreamer = StateStreamer<Snapshot>
     
-    /// `ObjectStreamer` adopter that can receive async stream of `Graph<State, Action>`
-    public typealias Streamer = ObjectStreamer<StoreGraph>
-    public typealias StreamerContinuation = AsyncStream<StoreGraph>.Continuation
+    /// `ObjectStreamer` adopter that can receive async stream of `Snapshot`s
+    public typealias Streamer = ObjectStreamer<Snapshot>
+    public typealias SnapshotContinuation = AsyncStream<Snapshot>.Continuation
     
     //MARK: - Public properties
     /// The internal dispatch queue used for synchronizing state updates and store operations.
@@ -181,11 +164,6 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     ///
     /// - Important: Directly submitting work to this queue from outside the store is discouraged.
     ///   Use the store's public API for all interactions to maintain thread safety and data integrity.
-    ///
-    /// ### Example:
-    /// ```swift
-    /// print(store.queue.label) // Prints the label of the store's internal queue
-    /// ```
     ///
     public let queue: DispatchQueue
     
@@ -214,20 +192,18 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// ```
     ///
     public let reducer: Reducer
+    public private(set) var state: State
     
-    @usableFromInline
-    private(set) var state: State
-    
-    /// A computed property that provides a ‎``StoreGraph``—an abstraction encapsulating the current state and a dispatcher for actions.
+    /// A computed property that provides a ‎``Snapshot``—an abstraction encapsulating the current state and a dispatcher for actions.
     ///
-    /// The ‎`graph` property returns a new ‎``StoreGraph`` instance each time it is accessed, reflecting the store’s latest state and offering a type-safe way to dispatch actions.
+    /// The ‎`graph` property returns a new ‎``Snapshot`` instance each time it is accessed, reflecting the store’s latest state and offering a type-safe way to dispatch actions.
     ///
     /// Importantly, accessing or passing the ‎`graph` does not create a strong reference cycle or extend the lifetime of the store.
     /// As a result, you can safely pass ‎`graph` to child components or views without risk of memory leaks or unintended retention of the store instance.
     /// Use ‎`graph` to expose just the state and dispatch capability to child components or views, without exposing the full store or its internal mechanisms.
     /// This is especially useful for unidirectional data flow architectures, where you want to allow updates via actions but keep state mutations centralized.
     ///
-    /// - Returns: A ‎``StoreGraph`` containing the current state and a dispatcher closure.
+    /// - Returns: A ‎``Snapshot`` containing the current state and a dispatcher closure.
     ///
     /// ### Example:
     ///```swift
@@ -239,16 +215,40 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// - Note: Each access to ‎`graph` yields a fresh ‎`StoreGraph` instance with the most recent state.
     ///
     @inlinable
-    public var graph: StoreGraph {
-        Graph(state) { [weak self] actions in
-            self?.dispatcher(actions)
-        }
+    @available(*, deprecated, renamed: "snapshot", message: "Use `snapshot` property")
+    public var graph: Snapshot { snapshot }
+    
+    /// A computed property that provides a ‎``Snapshot``—an abstraction encapsulating the current state and a dispatcher for actions.
+    ///
+    /// The ‎`snapshot` property returns a new ‎``Snapshot`` instance each time it is accessed, reflecting the store’s latest state and offering a type-safe way to dispatch actions.
+    ///
+    /// Importantly, accessing or passing the ‎`snapshot` does not create a strong reference cycle or extend the lifetime of the store.
+    /// As a result, you can safely pass ‎`snapshot` to child components or views without risk of memory leaks or unintended retention of the store instance.
+    /// Use ‎`snapshot` to expose just the state and dispatch capability to child components or views, without exposing the full store or its internal mechanisms.
+    /// This is especially useful for unidirectional data flow architectures, where you want to allow updates via actions but keep state mutations centralized.
+    ///
+    /// - Returns: A ‎``Snapshot`` containing the current state and a dispatcher closure.
+    ///
+    /// ### Example:
+    ///```swift
+    /// let snapshot = store.snapshot
+    /// print(snapshot.state) // Access the current state
+    /// snapshot.dispatch(.increment) // Dispatch an action
+    /// ```
+    ///
+    /// - Note: Each access to ‎`snapshot` yields a fresh ‎`Snapshot` instance with the most recent state.
+    ///
+    @inlinable
+    public var snapshot: Snapshot {
+        Snapshot(store: self)
     }
     
     //MARK: - Private properties
     @usableFromInline
-    private(set) var continuations = [AnyHashable: StreamerContinuation]()
+    private(set) var continuations = [AnyHashable: SnapshotContinuation]()
     
+    @usableFromInline
+    private(set) var subscribers = [AnyHashable: AsyncStream<Store>.Continuation]()
     
     //MARK: - init(_:)
     
@@ -296,7 +296,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     //MARK: - Deprecations
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
-    public typealias GraphObserver = Observer<StoreGraph>
+    public typealias GraphObserver = Observer<Snapshot>
     
     @available(*, deprecated)
     private(set) var observers = Set<GraphObserver>()
@@ -323,8 +323,15 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
         }
         queue.sync {
             state = actions.reduce(into: state, reducer)
-            let graph = graph
-            continuations.forEach(yield(graph))
+            
+            if !continuations.isEmpty {
+                let snapshot = snapshot
+                continuations.forEach(yield(snapshot))
+            }
+            
+            if !subscribers.isEmpty {
+                subscribers.forEach(yield)
+            }
             
             // deprecated support
             observers.forEach(notify)
@@ -334,6 +341,51 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
 
 //MARK: - Public Methods
 public extension Store {
+    
+    /// Creates an `AsyncStream` that emits state updates from the store.
+    ///
+    /// - Parameter buffering: The buffering policy for the stream.
+    ///   Defaults to `.unbounded`.
+    /// - Returns: An `AsyncStream<Snapshot>` that emits state updates.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let store = Store<CounterState, CounterAction>(...)
+    ///
+    /// Task {
+    ///     for await snapshot in store.updates() {
+    ///         print("Count updated: \(snapshot.state.count)")
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Performance Considerations
+    /// - `.unbounded` buffering can lead to high memory usage with frequent updates
+    /// - Consider `.bufferingNewest(1)` for UI updates
+    /// - Use `.bufferingOldest(n)` when you need to process updates in exact order
+    ///
+    /// ## Thread Safety
+    /// - This method is thread-safe and can be called from any thread
+    ///
+    /// - Important: The stream yields an initial snapshot immediately when
+    ///   created, so your observation loop will always start with the current
+    ///   state.
+    ///
+    /// - Warning: Using `.unbounded` buffering with high-frequency updates
+    ///   can lead to memory pressure. Consider using `.bufferingNewest(n)`
+    ///   for such scenarios.
+    ///
+    @inlinable
+    func updates(_ buffering: AsyncStream<Snapshot>.Continuation.BufferingPolicy = .unbounded) -> AsyncStream<Snapshot> {
+        AsyncStream(bufferingPolicy: buffering) { continuation in
+            let identifier = UUID()
+            queue.async { [self] in
+                continuations.updateValue(continuation, forKey: identifier)
+                continuation.yield(snapshot)
+            }
+        }
+    }
     
     //MARK: - Streamer methods
     
@@ -359,29 +411,7 @@ public extension Store {
     func subscribe(_ streamer: some Streamer) {
         queue.sync {
             continuations.updateValue(streamer.continuation, forKey: streamer.streamerID)
-            yield(graph)((streamer.streamerID, streamer.continuation))
-        }
-    }
-    
-    @inlinable
-    func stateStream(
-        for listener: AnyObject,
-        buffering policy: AsyncStream<StoreGraph>.Continuation.BufferingPolicy = .unbounded
-    ) -> AsyncStream<StoreGraph> {
-        let (stream, continuation) = AsyncStream.makeStream(of: StoreGraph.self, bufferingPolicy: policy)
-        let id = ObjectIdentifier(listener)
-        return queue.sync {
-            continuations[id] = continuation
-            continuation.yield(graph)
-            return stream
-        }
-    }
-    
-    @inlinable
-    func finishStream(for listener: AnyObject) {
-        let id = ObjectIdentifier(listener)
-        queue.sync {
-            continuations.removeValue(forKey: id)?.finish()
+            yield(snapshot)((streamer.streamerID, streamer.continuation))
         }
     }
     
@@ -448,7 +478,7 @@ public extension Store {
     ///
     /// ### Example
     /// ```swift
-    /// let driver = StateStreamer<Graph<MyState, MyAction>>()
+    /// let driver = StateStreamer<Snapshot<MyState, MyAction>>()
     /// store.install(driver)
     /// ```
     ///
@@ -456,7 +486,7 @@ public extension Store {
     func install(_ driver: GraphStreamer) {
         queue.sync {
             continuations[driver] = driver.continuation
-            continuations[driver]?.yield(graph)
+            continuations[driver]?.yield(snapshot)
         }
     }
     
@@ -472,8 +502,8 @@ public extension Store {
     /// ### Example:
     /// ```swift
     /// store.installAll {
-    ///     StateStreamer<Graph<MyState, MyAction>>()
-    ///     StateStreamer<Graph<MyState, MyAction>>()
+    ///     StateStreamer<Snapshot<MyState, MyAction>>()
+    ///     StateStreamer<Snapshot<MyState, MyAction>>()
     /// }
     /// ```
     ///
@@ -483,7 +513,7 @@ public extension Store {
         let drivers = Dictionary(builder().map { ($0, $0.continuation) }) { $1 }
         queue.sync {
             self.continuations.merge(drivers) { $1 }
-            drivers.forEach(yield(graph))
+            drivers.forEach(yield(snapshot))
         }
     }
     
@@ -535,19 +565,29 @@ public extension Store {
         queue.sync { continuations[driver] != nil }
     }
     
-    /// Dispatches a single action to the store for processing.
+    /// Dispatches a single action to the store.
     ///
-    /// This method sends the provided action to the store's reducer, which updates the state accordingly.
-    /// After the state is updated, all subscribers are notified of the new state.
+    /// This method enqueues an action for processing by the store's reducer.
+    /// Actions are processed synchronously on the store's internal dispatch queue,
+    /// ensuring thread-safe state updates.
     ///
-    /// This method is thread-safe and can be called from any thread.
+    /// - Parameter action: The action to dispatch.
     ///
-    /// - Parameter action: The action to be processed by the store's reducer.
-    ///
-    /// ### Example:
+    /// ## Usage
     /// ```swift
+    /// let store = Store<CounterState, CounterAction>(...)
+    ///
+    /// // Dispatch a single action
     /// store.dispatch(.increment)
+    /// store.dispatch(.decrement)
     /// ```
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    /// The action will be processed synchronously on the store's internal queue.
+    ///
+    /// ### See Also
+    /// - ``dispatch(contentsOf:)`` for dispatching multiple actions
     ///
     @inlinable
     @Sendable
@@ -555,19 +595,35 @@ public extension Store {
         dispatcher(CollectionOfOne(action))
     }
     
-    /// Dispatches a sequence of actions to the store for processing in order.
+    /// Dispatches a collection of actions to the store.
     ///
-    /// This method sends all actions in the provided sequence to the store's reducer, applying them one after another.
-    /// After all actions are processed and the state is updated, all subscribers are notified of the new state.
+    /// This method processes multiple actions in sequence. Actions are applied
+    /// in the order they appear in the collection, allowing for atomic state
+    /// updates across multiple actions.
     ///
+    /// - Parameter actions: A collection of actions to dispatch.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// let store = Store<CounterState, CounterAction>(...)
+    ///
+    /// // Dispatch multiple actions from an array
+    /// store.dispatch(contentsOf: [.increment, .increment, .decrement])
+    ///
+    /// // Dispatch actions from a set
+    /// store.dispatch(contentsOf: Set([.reset, .increment]))
+    /// ```
+    ///
+    /// ## Performance
+    /// When dispatching multiple actions, this method is more efficient than
+    /// calling ``dispatch(_:)`` multiple times, as it only triggers observers
+    /// once after all actions are processed.
+    ///
+    /// ## Thread Safety
     /// This method is thread-safe and can be called from any thread.
     ///
-    /// - Parameter s: A sequence of actions to be processed by the store's reducer, in order.
-    ///
-    /// ### Example
-    /// ```swift
-    /// store.dispatch(contentsOf: [.increment, .decrement, .reset])
-    /// ```
+    /// ### See Also
+    /// - ``dispatch(_:)`` for dispatching single actions
     ///
     @inlinable
     @Sendable
@@ -578,9 +634,9 @@ public extension Store {
 
 //MARK: - Private methods
 private extension Store {
-    func yield(_ graph: StoreGraph) -> ([AnyHashable : StreamerContinuation].Element) -> Void {
+    func yield(_ snapshot: Snapshot) -> ([AnyHashable : SnapshotContinuation].Element) -> Void {
         { element in
-            switch element.value.yield(graph) {
+            switch element.value.yield(snapshot) {
             case .terminated:
                 self.continuations.removeValue(forKey: element.key)
                 
@@ -590,6 +646,19 @@ private extension Store {
             @unknown default:
                 assertionFailure()
             }
+        }
+    }
+    
+    func yield(_ subscriber: [AnyHashable: AsyncStream<Store>.Continuation].Element) {
+        switch subscriber.value.yield(self) {
+        case .terminated:
+            subscribers.removeValue(forKey: subscriber.key)
+            
+        case .dropped, .enqueued:
+            break
+            
+        @unknown default:
+            return
         }
     }
 }

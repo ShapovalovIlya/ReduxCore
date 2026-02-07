@@ -9,7 +9,7 @@ import Testing
 @testable import ReduxCore
 
 struct GraphTest {
-    typealias Sut = Graph<Int, Int>
+    typealias Sut = Store<Int, Int>.Snapshot
     
     @Test func accessToStateFromDifferentTasks() async throws {
         let sut = Sut(1) { _ in }
