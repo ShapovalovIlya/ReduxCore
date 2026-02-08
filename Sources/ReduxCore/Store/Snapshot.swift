@@ -36,9 +36,6 @@ public extension Store {
     /// - Note: ‎`Snapshot` does not subscribe to state changes. To observe updates, access the latest ‎`Graph` from the parent ‎`Store`.
     struct Snapshot {
         @usableFromInline
-        typealias Dispatcher = @Sendable (any Collection<Action>) -> Void
-        
-        @usableFromInline
         final class Storage {
             
             @usableFromInline
@@ -52,20 +49,13 @@ public extension Store {
         let storage: Storage
         
         @usableFromInline
-        let dispatcher: Dispatcher
+        weak var store: Store?
         
         //MARK: - init(_:)
         @inlinable
-        init(_ state: State, dispatcher: @escaping Dispatcher) {
-            self.storage = Storage(state)
-            self.dispatcher = dispatcher
-        }
-        
-        @inlinable
         init(store: Store<State, Action>) {
-            self.init(store.state) { [weak store] actions in
-                store?.dispatcher(actions)
-            }
+            self.store = store
+            self.storage = Storage(store.state)
         }
     }
 }
@@ -102,7 +92,7 @@ public extension Store.Snapshot {
     /// - Parameter action: The action to be dispatched to the store.
     @inlinable
     func dispatch(_ action: Action) {
-        dispatcher(CollectionOfOne(action))
+        store?.dispatch(action)
     }
     
     /// Dispatches multiple actions to the underlying ``Store`` in the order provided.
@@ -114,7 +104,7 @@ public extension Store.Snapshot {
     /// - Parameter actions: A variadic list of actions to be dispatched to the store, in order.
     @inlinable
     func dispatch(_ actions: Action...) {
-        dispatcher(actions)
+        store?.dispatch(contentsOf: actions)
     }
     
     /// Dispatches a sequence of actions to the underlying store in the order they appear in the sequence.
@@ -126,7 +116,7 @@ public extension Store.Snapshot {
     /// - Parameter s: A sequence of actions to be dispatched to the store, in order.
     @inlinable
     func dispatch(contentsOf s: some Sequence<Action>) {
-        dispatcher(Array(s))
+        store?.dispatch(contentsOf: s)
     }
 }
 
