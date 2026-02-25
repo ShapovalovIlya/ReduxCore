@@ -97,10 +97,11 @@ import StoreThread
 ///
 /// The `Store` class provides a robust foundation for scalable, predictable state management in any Swift application.
 @dynamicMemberLookup
-public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
-    //MARK: - Aliases
+public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
     
-    public typealias StoreGraph = Graph<State, Action>
+    //MARK: - Aliases
+    public typealias Snapshot = StoreSnapshot<Store>
+    
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
     /// The `Reducer` defines the signature for a pure function that takes the current state (as an inout parameter)
@@ -131,7 +132,7 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     /// A type alias for a state streamer that emits `GraphStore` (graph) state updates.
     ///
     /// `GraphStreamer` is a convenience alias for `StateStreamer<StoreGraph>`, allowing you to create
-    /// asynchronous streams of ``StoreGraph`` values. This is typically used to drive state updates to
+    /// asynchronous streams of ``Store/Snapshot`` values. This is typically used to drive state updates to
     /// strongly-held subscribers (drivers) within the store architecture.
     ///
     /// - Note: Use `GraphStreamer` when you want to observe or react to changes in the store's state and dispatcher
@@ -290,8 +291,8 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
     
     //MARK: - Public methods
     @inlinable
-    public subscript<T>(dynamicMember keyPath: KeyPath<StoreGraph, T>) -> T {
-        graph[keyPath: keyPath]
+    public subscript<T>(dynamicMember keyPath: KeyPath<State, T>) -> T {
+        state[keyPath: keyPath]
     }
     
     //MARK: - Deprecations
@@ -325,7 +326,6 @@ public final class Store<State, Action>: ObservableObject, @unchecked Sendable {
             state = actions.reduce(into: state, reducer)
             
             if !continuations.isEmpty {
-                let snapshot = snapshot
                 continuations.forEach(yield(snapshot))
             }
             
@@ -346,7 +346,7 @@ public extension Store {
     ///
     /// - Parameter buffering: The buffering policy for the stream.
     ///   Defaults to `.unbounded`.
-    /// - Returns: An `AsyncStream<Snapshot>` that emits state updates.
+    /// - Returns: An `AsyncStream` that emits state updates.
     ///
     /// ## Usage
     ///
@@ -379,10 +379,48 @@ public extension Store {
     @inlinable
     func updates(_ buffering: AsyncStream<Snapshot>.Continuation.BufferingPolicy = .unbounded) -> AsyncStream<Snapshot> {
         AsyncStream(bufferingPolicy: buffering) { continuation in
-            let identifier = UUID()
+            Task {
+                await onChange.map(\.snapshot).forEach {
+                    continuation.yield($0)
+                }
+                continuation.finish()
+            }
+        }
+    }
+    
+    /// Provides an `AsyncStream` that emits the store instance whenever its state changes.
+    ///
+    /// `onChange` returns a stream that yields the entire store instance (not just its state)
+    /// each time an action is dispatched and the reducer processes it. This provides a
+    /// convenient way to observe store changes while maintaining access to the full store API.
+    ///
+    /// ## Overview
+    /// Unlike ``updates()`` which yields ``Snapshot`` objects containing only state and dispatch,
+    /// `onChange` yields the complete `Store` instance. This allows observers to:
+    /// - Access the current state via ``Store/state``
+    /// - Dispatch new actions directly
+    /// - Use dynamic member lookup on the store
+    /// - Access other store properties and methods
+    ///
+    /// ## Buffering Behavior
+    /// The stream uses `.bufferingNewest(1)` buffering policy, which means:
+    /// - Only the most recent store instance is buffered
+    /// - If the observer cannot keep up with updates, intermediate states may be dropped
+    /// - This is optimal for UI updates where only the latest state matters
+    ///
+    /// - Important: The stream yields immediately when created,
+    ///   so your observation loop will always start with the current store.
+    ///
+    /// - Warning: Because this yields the entire store, be cautious about
+    ///   creating reference cycles. The store does not strongly retain observers,
+    ///   but observers should use `[weak store]` if they capture the store.
+    ///
+    @inlinable
+    var onChange: AsyncStream<Store> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             queue.async { [self] in
-                continuations.updateValue(continuation, forKey: identifier)
-                continuation.yield(snapshot)
+                subscribers.updateValue(continuation, forKey: UUID())
+                continuation.yield(self)
             }
         }
     }

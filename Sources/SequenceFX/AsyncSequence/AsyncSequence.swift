@@ -142,7 +142,7 @@ public extension AsyncSequence {
     ///
     /// - Parameter body: An asynchronous closure that takes an element of the sequence as its parameter.
     /// - Throws: Rethrows any error thrown by the closure, the sequence’s asynchronous iterator, or if the task is cancelled.
-    /// - Important: If the surrounding task is cancelled, this method throws `CancellationError` and stops processing further elements.
+    /// - Important: If the surrounding task is cancelled, this method stops processing further elements.
     ///
     /// ### SeeAlso:
     /// - ``forEachTask(priority:_:)`` for a version that runs Iteration as part of a new top-level task on behalf of the current actor.
