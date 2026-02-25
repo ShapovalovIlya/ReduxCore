@@ -291,8 +291,8 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
     
     //MARK: - Public methods
     @inlinable
-    public subscript<T>(dynamicMember keyPath: KeyPath<State, T>) -> T {
-        state[keyPath: keyPath]
+    public subscript<T>(dynamicMember keyPath: KeyPath<Snapshot, T>) -> T {
+        snapshot[keyPath: keyPath]
     }
     
     //MARK: - Deprecations
