@@ -81,6 +81,8 @@ public extension SequenceFX.Throttle {
             let start = last ?? Date()
             
             repeat {
+                try Task.checkCancellation()
+                
                 switch try await base.next() {
                 case .none:
                     if let last, let amount = SleepAmount(last: last, interval: interval) {
