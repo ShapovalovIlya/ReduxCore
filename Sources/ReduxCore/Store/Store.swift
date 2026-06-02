@@ -8,6 +8,7 @@
 import Foundation
 import ReduxStream
 import StoreThread
+import ReduxSync
 
 /// A thread-safe, observable state container for managing application state and dispatching actions.
 ///
@@ -193,8 +194,10 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
     /// ```
     ///
     public let reducer: Reducer
-    public private(set) var state: State
-    
+    public var state: State { _state.withLock(\.self) }
+
+    private var _state: OSUnfairLock<State>
+
     /// A computed property that provides a ‎``Snapshot``—an abstraction encapsulating the current state and a dispatcher for actions.
     ///
     /// The ‎`graph` property returns a new ‎``Snapshot`` instance each time it is accessed, reflecting the store’s latest state and offering a type-safe way to dispatch actions.
@@ -279,7 +282,7 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
         qos: DispatchQoS = .userInteractive,
         reducer: @escaping Reducer
     ) {
-        self.state = state
+        self._state = OSUnfairLock(initial: state)
         self.reducer = reducer
         self.queue = DispatchQueue(
             label: "com.reduxCore.StoreQueue",
@@ -323,8 +326,9 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
             self.objectWillChange.send()
         }
         queue.sync {
-            state = actions.reduce(into: state, reducer)
-            
+            let updated = actions.reduce(into: _state.withLock(\.self), reducer)
+            _state.withLock { $0 = updated }
+
             if !continuations.isEmpty {
                 continuations.forEach(yield(snapshot))
             }
