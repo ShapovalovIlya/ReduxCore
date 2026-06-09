@@ -14,7 +14,7 @@ struct StoreTests {
     typealias SutGraph = Sut.Snapshot
     typealias Streamer = StateStreamer<SutGraph>
     
-    @Test func storeDrivers() async throws {
+    @Test func storeDrivers() throws {
         let sut = makeSUT()
         let driver = Streamer()
         
@@ -27,7 +27,7 @@ struct StoreTests {
         #expect(sut.contains(driver: driver) == false)
     }
     
-    @Test func storeStreamers() async throws {
+    @Test func storeStreamers() throws {
         let sut = makeSUT()
         let streamer1 = Streamer()
         let streamer2 = Streamer()
@@ -49,7 +49,7 @@ struct StoreTests {
         #expect(sut.contains(streamer: streamer2) == false)
     }
     
-    @Test func storeDispatchActions() async throws {
+    @Test func storeDispatchActions() throws {
         let sut = makeSUT()
         
         sut.dispatch(1)
@@ -62,7 +62,7 @@ struct StoreTests {
         #expect(sut.state == 8)
     }
     
-    @Test func graphDispatchSingleAction() async throws {
+    @Test func graphDispatchSingleAction() throws {
         let sut = makeSUT()
         
         sut.snapshot.dispatch(1)
@@ -72,7 +72,7 @@ struct StoreTests {
         #expect(sut.state == 3)
     }
     
-    @Test func graphDispatchMultipleActions() async throws {
+    @Test func graphDispatchMultipleActions() throws {
         let sut = makeSUT()
         
         sut.snapshot.dispatch(1, 1, 1)
@@ -82,7 +82,7 @@ struct StoreTests {
     }
     
     @Test func storeResistDataRace() async throws {
-        let sut = makeSUT()
+        let sut = Store(initial: 0) { $0 += $1 }
         
         await withTaskGroup(of: Void.self) { group in
             group.addTask(priority: .high) {
@@ -97,11 +97,15 @@ struct StoreTests {
             }
             await group.waitForAll()
         }
+        
+        await withCheckedContinuation { continuation in
+            sut.scheduler.schedule(continuation.resume)
+        }
                 
         #expect(sut.state == 102)
     }
     
-    @Test func subscribeStreamer() async throws {
+    @Test func subscribeStreamer() throws {
         let sut = makeSUT()
         let one = Streamer()
         let two = Streamer()
@@ -116,7 +120,7 @@ struct StoreTests {
         #expect(sut.contains(driver: three) == true)
     }
 
-    @Test func subscribeStreamerUsingBuilder() async throws {
+    @Test func subscribeStreamerUsingBuilder() throws {
         let sut = makeSUT()
         let one = Streamer()
         let two = Streamer()
@@ -216,22 +220,29 @@ struct StoreTests {
     }
     
     @Test func dispatchActionsInOrder() async throws {
-        let sut = Store(initial: [Int]()) { $0.append($1) }
+        let sut = Store(initial: [Int](), scheduler: ImmediateScheduler()) { $0.append($1) }
         let actions = Array(
-            repeating: Int.random(in: Int.min...Int.max),
+            repeating: Int(Int8.random(in: Int8.min...Int8.max)),
             count: Int.random(in: 1...10000)
         )
         
         actions.forEach(sut.dispatch(_:))
         
+        #expect(sut.state.count == actions.count)
         #expect(sut.state == actions)
     }
 }
 
 private extension StoreTests {
+    struct ImmediateScheduler: ReduxScheduler {
+        func schedule(_ work: @escaping () -> Void) {
+            work()
+        }
+    }
+    
     //MARK: - Helpers
     func makeSUT() -> Sut {
-        Store(initial: 0) { $0 += $1 }
+        Store(initial: 0, scheduler: ImmediateScheduler()) { $0 += $1 }
     }
 }
 

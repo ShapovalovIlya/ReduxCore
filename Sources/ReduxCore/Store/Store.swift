@@ -158,16 +158,15 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
     public typealias SnapshotContinuation = AsyncStream<Snapshot>.Continuation
     
     //MARK: - Public properties
-    /// The internal dispatch queue used for synchronizing state updates and store operations.
+    /// The internal scheduler used for synchronizing state updates and store operations.
     ///
-    /// All state mutations, action dispatches, and subscription management are performed synchronously on this queue
-    /// to ensure thread safety. The queue's quality of service (QoS) can be configured during store initialization,
-    /// allowing you to control the priority of store-related tasks.
+    /// All state mutations, action dispatches, and subscription management  on this scheduler
+    /// to ensure thread safety.
     ///
-    /// - Important: Directly submitting work to this queue from outside the store is discouraged.
+    /// - Important: Directly submitting work to this scheduler from outside the store is discouraged.
     ///   Use the store's public API for all interactions to maintain thread safety and data integrity.
     ///
-    public let queue: DispatchQueue
+    public let scheduler: any ReduxScheduler
     
     /// The `Reducer` function used to handle actions and mutate the store's state.
     ///
@@ -264,7 +263,7 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - state: The initial state to be managed by the store.
-    ///   - qos: The quality of service for the store's internal dispatch queue. Defaults to `.userInteractive`.
+    ///   - scheduler: The internal scheduler used for synchronizing state updates and store operations.
     ///   - reducer: A closure that takes the current state and an action, and mutates the state in response to the action.
     ///
     /// ### Example:
@@ -279,17 +278,12 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
     ///
     public init(
         initial state: State,
-        qos: DispatchQoS = .userInteractive,
+        scheduler: some ReduxScheduler = DispatchQueue.storeScheduler,
         reducer: @escaping Reducer
     ) {
         self._state = OSUnfairLock(initial: state)
         self.reducer = reducer
-        self.queue = DispatchQueue(
-            label: "com.reduxCore.StoreQueue",
-            qos: qos,
-            autoreleaseFrequency: .workItem,
-            target: .global(qos: qos.qosClass)
-        )
+        self.scheduler = scheduler
     }
     
     //MARK: - Public methods
@@ -312,7 +306,7 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
             let status = observer.observe?(graph)
             
             guard case .dead = status else { return }
-            _ = self.queue.sync {
+            _ = self.scheduler.schedule {
                 self.observers.remove(observer)
             }
         }
@@ -325,7 +319,7 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
         DispatchQueue.main.async {
             self.objectWillChange.send()
         }
-        queue.sync {
+        scheduler.schedule { [self] in
             let updated = actions.reduce(into: _state.withLock(\.self), reducer)
             _state.withLock { $0 = updated }
 
@@ -383,11 +377,15 @@ public extension Store {
     @inlinable
     func updates(_ buffering: AsyncStream<Snapshot>.Continuation.BufferingPolicy = .unbounded) -> AsyncStream<Snapshot> {
         AsyncStream(bufferingPolicy: buffering) { continuation in
-            Task {
-                await onChange.map(\.snapshot).forEach {
-                    continuation.yield($0)
-                }
-                continuation.finish()
+            let task = onChange
+                .map(\.snapshot)
+                .task(
+                    onNext: { continuation.yield($0) },
+                    onCancel: { _ in continuation.finish() }
+                )
+            
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
@@ -419,10 +417,9 @@ public extension Store {
     ///   creating reference cycles. The store does not strongly retain observers,
     ///   but observers should use `[weak store]` if they capture the store.
     ///
-    @inlinable
     var onChange: AsyncStream<Store> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            queue.async { [self] in
+            scheduler.schedule { [self] in
                 subscribers.updateValue(continuation, forKey: UUID())
                 continuation.yield(self)
             }
@@ -451,7 +448,7 @@ public extension Store {
     /// ```
     ///
     func subscribe(_ streamer: some Streamer) {
-        queue.sync {
+        scheduler.schedule { [self] in
             continuations.updateValue(streamer.continuation, forKey: streamer.streamerID)
             yield(snapshot)((streamer.streamerID, streamer.continuation))
         }
@@ -473,11 +470,9 @@ public extension Store {
     /// store.unsubscribe(streamer)
     /// ```
     ///
-    @inlinable
-    @discardableResult
-    func unsubscribe(_ streamer: some Streamer) -> Bool {
-        queue.sync {
-            continuations.removeValue(forKey: streamer.streamerID) != nil
+    func unsubscribe(_ streamer: some Streamer) {
+        scheduler.schedule { [self] in
+            continuations.removeValue(forKey: streamer.streamerID)
         }
     }
         
@@ -498,9 +493,8 @@ public extension Store {
     /// }
     /// ```
     ///
-    @inlinable
     func contains(streamer: some Streamer) -> Bool {
-        queue.sync {
+        _state.withLock {
             continuations[streamer.streamerID] != nil
         }
     }
@@ -524,9 +518,8 @@ public extension Store {
     /// store.install(driver)
     /// ```
     ///
-    @inlinable
     func install(_ driver: GraphStreamer) {
-        queue.sync {
+        scheduler.schedule { [self] in
             continuations[driver] = driver.continuation
             continuations[driver]?.yield(snapshot)
         }
@@ -553,7 +546,7 @@ public extension Store {
     ///
     func installAll(@StreamerBuilder _ builder: () -> [GraphStreamer]) {
         let drivers = Dictionary(builder().map { ($0, $0.continuation) }) { $1 }
-        queue.sync {
+        scheduler.schedule { [self] in
             self.continuations.merge(drivers) { $1 }
             drivers.forEach(yield(snapshot))
         }
@@ -576,14 +569,9 @@ public extension Store {
     /// }
     /// ```
     ///
-    @inlinable
-    @discardableResult
-    func uninstall(_ driver: GraphStreamer) -> GraphStreamer? {
-        queue.sync {
-            guard continuations.removeValue(forKey: driver) != nil else {
-                return nil
-            }
-            return driver
+    func uninstall(_ driver: GraphStreamer) {
+        scheduler.schedule { [self] in
+            continuations.removeValue(forKey: driver)
         }
     }
     
@@ -602,9 +590,8 @@ public extension Store {
     /// }
     /// ```
     ///
-    @inlinable
     func contains(driver: GraphStreamer) -> Bool {
-        queue.sync { continuations[driver] != nil }
+        _state.withLock { continuations[driver] != nil }
     }
     
     /// Dispatches a single action to the store.
@@ -709,7 +696,7 @@ private extension Store {
 public extension Store {
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
     func subscribe(_ observer: GraphObserver) {
-        queue.sync {
+        scheduler.schedule { [self] in
             observers.insert(observer)
             notify(observer)
         }
@@ -718,7 +705,7 @@ public extension Store {
     @available(*, deprecated, message: "Observer is deprecated for future versions. Use StateStream or ObjectStreamer")
     func subscribe(@SubscribersBuilder _ builder: () -> [GraphObserver]) {
         let observers = builder()
-        queue.sync {
+        scheduler.schedule { [self] in
             self.observers.formUnion(observers)
             observers.forEach(notify)
         }
