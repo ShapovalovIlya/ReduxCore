@@ -270,7 +270,7 @@ public extension AsyncSequence {
     func forEachTask(
         priority: TaskPriority? = nil,
         onNext: @escaping @Sendable (Element) async throws -> Void,
-        onCancel: @escaping @Sendable () async throws -> Void
+        onCancel: @escaping @Sendable (Error?) async throws -> Void
     ) -> Task<Void, Error> {
         task(priority: priority, onNext: onNext, onCancel: onCancel)
     }
@@ -317,12 +317,16 @@ public extension AsyncSequence {
     func task(
         priority: TaskPriority? = nil,
         onNext: @escaping @Sendable (Element) async throws -> Void,
-        onCancel: @escaping @Sendable () async throws -> Void
+        onCancel: @escaping @Sendable (Error?) async throws -> Void
     ) -> Task<Void, Error> {
         Task(priority: priority) {
-            try await self.forEach(onNext)
-            try Task.checkCancellation()
-            try await onCancel()
+            do {
+                try await self.forEach(onNext)
+            } catch {
+                try await onCancel(error)
+                return
+            }
+            try await onCancel(nil)
         }
     }
 
