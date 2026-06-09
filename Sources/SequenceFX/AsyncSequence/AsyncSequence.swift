@@ -322,6 +322,7 @@ public extension AsyncSequence {
         Task(priority: priority) {
             do {
                 try await self.forEach(onNext)
+                try Task.checkCancellation()
             } catch {
                 try await onCancel(error)
                 return
