@@ -1,1 +1,172 @@
-# ReduxCore Swift: Unidirectional State Management# StoreA thread-safe, observable state container for Swift applications.  `Store` provides a robust, scalable foundation for managing application state and dispatching actions in a predictable, unidirectional data flow. Inspired by Redux and The Composable Architecture, it is designed to be the central point of state management in your app.## Why Store?- **Predictable State Management:** All state changes are driven by actions and a pure reducer function, making your app’s behavior easy to reason about and debug.- **Thread Safety:** State mutations and action dispatches are performed synchronously on a dedicated dispatch queue, ensuring safety across threads.- **Observability:** State changes are published using `@Published`, enabling seamless integration with SwiftUI and Combine.- **Flexible Subscriptions:** Support for both strong (drivers) and weak (streamers) subscription models lets you tailor state observation to your use case.- **Encapsulation:** The `StoreGraph` abstraction allows you to expose only the current state and dispatch capability to child components, preserving encapsulation and reducing coupling.## Key Features- Generic over `State` and `Action` types- Strong and weak subscription models- Synchronous and asynchronous state streaming- Type-safe reducer mechanism- Published state for Combine and SwiftUI integration- Designed for scalable, modular applications## Example```swiftenum CounterAction { case increment, decrement }struct CounterState {    var count: Int = 0}let reducer: Store<CounterState, CounterAction>.Reducer = { state, action in    switch action {    case .increment: state.count += 1    case .decrement: state.count -= 1    }}let store = Store<CounterState, CounterAction>(initial: CounterState(), reducer: reducer)store.dispatch(.increment)```See the documentation for more usage patterns, subscription models, and advanced scenarios.# GraphThe ‎`Graph` object is a lightweight, value-type abstraction that encapsulates a snapshot of the store’s state along with a type-safe action dispatcher. Designed for simplicity and modularity, ‎`Graph` enables child components and views to read state and dispatch actions without exposing the full store or its internals. Instances are cheap to copy and pass around, making them ideal for performance-sensitive and highly composable architectures.## Key Features- **State Snapshot:** Holds an immutable snapshot of the application state at the time it is created.- **Type-Safe Dispatch:** Provides a dispatcher function for sending single or multiple actions to the store.- **Sendable:** Can be safely passed between threads or used in concurrent contexts.- **Encapsulation:** Enables unidirectional data flow and modular architecture by exposing only what’s needed for state reading and action dispatching.## Usage Example```swiftlet graph = store.graphprint(graph.state)           // Access the current state snapshotgraph.dispatch(.increment)   // Dispatch a single actiongraph.dispatch(.reset, .increment) // Dispatch multiple actionsgraph.dispatch(contentsOf: [.decrement, .increment])```> **Note:**  > - The `Graph` instance itself does not subscribe to store updates.  > - To observe changes over time, access the latest `graph` from the store or subscribe using a streamer or driver.# StateStreamer`StateStreamer` is a generic, asynchronous, thread-safe utility for broadcasting state updates to multiple consumers using Swift Concurrency. It provides an `AsyncStream`-based interface for emitting values over time, making it ideal for scenarios where you want to observe and react to state changes as they happen—such as in Redux-like or unidirectional data flow architectures.### Key Features- **Asynchronous State Streaming:** Consumers can observe state updates using `for await` loops or by iterating over the provided `AsyncStream`.- **Configurable Buffering:** Control how many state values are buffered if there are no active consumers, helping to manage memory and backpressure.- **Automatic Stream Completion:** The stream completes automatically when the `StateStreamer` is deinitialized or when `finish()` is called, notifying all consumers.- **Thread Safety:** All operations are safe to call from any thread.### Usage Example```swiftlet streamer = StateStreamer<MyState>()// Consuming state updates asynchronouslyTask {    for await state in streamer {        print("Received state update: \(state)")    }}// Emitting a new state updatestreamer.yield(newState)// Finishing the stream (notifying all consumers)streamer.finish()```> **Note:**  > - After the stream is finished or the streamer is deinitialized, no further values can be yielded.> - StateStreamer is especially useful for integrating with async/await workflows, Combine pipelines, or custom state management solutions.
+# ReduxCore: Unidirectional State Management for Swift
+
+A thread-safe, observable state container for Swift applications. Inspired by Redux and The Composable Architecture, ReduxCore provides a robust foundation for managing application state and dispatching actions in a predictable, unidirectional data flow.
+
+- **Predictable State:** All changes driven by actions and pure reducer functions
+- **Thread Safety:** Mutations on a dedicated scheduler, safe from any thread
+- **Async Observation:** `for await` state streams with Swift Concurrency
+- **Flexible Subscriptions:** Strong (drivers) and weak (streamers) models
+- **Encapsulation:** `StoreSnapshot` exposes only state + dispatch to child components
+- **Composable Reducers:** `@ReducerCombine` result builder for modular logic
+
+## Installation
+
+Add the package to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/ShapovalovIlya/ReduxCore.git", branch: "main")
+]
+```
+
+Or via Xcode: **File > Add Package Dependencies...**
+
+The package provides four library products:
+
+| Product | Description |
+|---------|-------------|
+| `ReduxCore` | Main store, snapshot, and scheduler APIs |
+| `ReduxStream` | `StateStreamer` for async state broadcasting |
+| `ReduxSync` | Thread-safety primitives (`OSUnfairLock`, `@Synchronised`) |
+| `ReducerDomain` | Composable reducer protocol and `@ReducerCombine` builder |
+
+## Quick Start
+
+```swift
+import ReduxCore
+
+// 1. Define actions and state
+enum CounterAction { case increment, decrement }
+
+struct CounterState {
+    var count: Int = 0
+}
+
+// 2. Create a reducer
+let reducer: Store<CounterState, CounterAction>.Reducer = { state, action in
+    switch action {
+    case .increment:  state.count += 1
+    case .decrement:  state.count -= 1
+    }
+}
+
+// 3. Initialize the store
+let store = Store<CounterState, CounterAction>(initial: CounterState(), reducer: reducer)
+
+// 4. Dispatch actions
+store.dispatch(.increment)
+store.dispatch(contentsOf: [.increment, .decrement])
+
+// 5. Read state — @dynamicMemberLookup lets you skip `.state`
+print(store.count) // 0
+```
+
+## Observing State
+
+### AsyncStream — one-off observation
+
+```swift
+Task {
+    for await snapshot in store.updates() {
+        print("Count: \(snapshot.count)")
+    }
+}
+store.dispatch(.increment) // triggers the loop
+```
+
+### Drivers — strong subscription
+
+```swift
+let driver = Store<CounterState, CounterAction>.GraphStreamer()
+store.install(driver)
+
+Task {
+    for await snapshot in driver {
+        print("Driver saw count: \(snapshot.count)")
+    }
+}
+// ... later
+store.uninstall(driver)
+```
+
+### Streamers — weak subscription
+
+```swift
+let streamer = StateStreamer<StoreSnapshot<Store<CounterState, CounterAction>>>()
+store.subscribe(streamer)
+
+Task {
+    for await snapshot in streamer {
+        print("Streamer saw count: \(snapshot.count)")
+    }
+}
+// Automatically unsubscribed when `streamer` is deallocated
+```
+
+## StoreSnapshot
+
+`StoreSnapshot` is a lightweight, immutable snapshot of the store's state with a weak reference back to the store. It's safe to pass to child components without creating retain cycles.
+
+```swift
+let snapshot = store.snapshot
+print(snapshot.state)           // Access the current state
+print(snapshot.count)           // @dynamicMemberLookup
+snapshot.dispatch(.increment)   // Dispatch actions
+snapshot.dispatch(.increment, .decrement) // Multiple actions
+```
+
+> **Note:** Snapshots do not auto-update. Get a fresh `store.snapshot` or use one of the observation methods above to react to changes.
+
+## Composable Reducers
+
+`ReducerDomain` + `@ReducerCombine` let you build modular, hierarchical reducer logic:
+
+```swift
+struct CounterFeature: ReducerDomain {
+    struct State { var count: Int = 0 }
+    enum Action { case increment, decrement }
+
+    var body: ReducerOf<Self> {
+        Reducer { state, action in
+            switch action {
+            case .increment:  state.count += 1
+            case .decrement:  state.count -= 1
+            }
+        }
+    }
+}
+```
+
+Multiple reducers compose with the `@ReducerCombine` result builder — later reducers handle actions first, falling back to earlier ones.
+
+## Thread Safety
+
+All state access is protected by `OSUnfairLock`. Action dispatch is serialized through a `ReduxScheduler` (default: a serial `DispatchQueue` at `.userInteractive` QoS). Custom schedulers can be injected for testing:
+
+```swift
+let testScheduler: any ReduxScheduler = MySynchronousScheduler()
+let store = Store(initial: state, scheduler: testScheduler, reducer: reducer)
+```
+
+## StateStreamer
+
+`StateStreamer<State>` is a standalone, async, thread-safe broadcaster for any state type. It wraps `AsyncStream` with automatic completion on deinitialization:
+
+```swift
+let streamer = StateStreamer<MyState>()
+
+// Consume
+Task {
+    for await state in streamer {
+        print("Received: \(state)")
+    }
+}
+
+// Emit
+streamer.yield(newState)
+
+// Complete
+streamer.finish()
+```
+
+> **Note:** After `finish()` or deinitialization, no further values can be yielded.
