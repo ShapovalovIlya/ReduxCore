@@ -33,6 +33,14 @@ public extension AsyncSequence where Element: Equatable {
 }
 
 public extension AsyncSequence {
+
+    @inlinable
+    var last: Element? {
+        get async throws {
+            try await reduce(into: nil) { $0 = $1 }
+        }
+    }
+
     //MARK: - Custom Sequence
     
     /// Returns an asynchronous sequence that omits consecutive duplicate elements, using the provided predicate for comparison.
