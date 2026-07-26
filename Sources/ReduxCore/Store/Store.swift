@@ -98,8 +98,8 @@ import ReduxSync
 ///
 /// The `Store` class provides a robust foundation for scalable, predictable state management in any Swift application.
 @dynamicMemberLookup
-public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
-    
+public final class Store<State, Action: Sendable>: ReduxStore, @unchecked Sendable {
+
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
     
@@ -319,8 +319,9 @@ public final class Store<State, Action>: ReduxStore, @unchecked Sendable {
         DispatchQueue.main.async {
             self.objectWillChange.send()
         }
+        let pending = Array(actions)
         scheduler.schedule { [self] in
-            let updated = actions.reduce(into: _state.withLock(\.self), reducer)
+            let updated = pending.reduce(into: _state.withLock(\.self), reducer)
             _state.withLock { $0 = updated }
 
             if !continuations.isEmpty {

@@ -238,6 +238,10 @@ private extension StoreTests {
         func schedule(_ work: @escaping () -> Void) {
             work()
         }
+
+        func schedule(_ work: @escaping @Sendable () async -> Void) {
+            Task(operation: work)
+        }
     }
     
     //MARK: - Helpers
