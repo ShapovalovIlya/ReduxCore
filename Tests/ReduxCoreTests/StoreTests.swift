@@ -14,69 +14,78 @@ struct StoreTests {
     typealias SutGraph = Sut.Snapshot
     typealias Streamer = StateStreamer<SutGraph>
     
-    @Test func storeDrivers() throws {
+    @Test func storeDrivers() async throws {
         let sut = makeSUT()
         let driver = Streamer()
         
         sut.install(driver)
+        await sut.scheduler.flush()
         
         #expect(sut.contains(driver: driver) == true)
         
         sut.uninstall(driver)
+        await sut.scheduler.flush()
         
         #expect(sut.contains(driver: driver) == false)
     }
     
-    @Test func storeStreamers() throws {
+    @Test func storeStreamers() async throws {
         let sut = makeSUT()
         let streamer1 = Streamer()
         let streamer2 = Streamer()
         
         sut.subscribe(streamer1)
         sut.subscribe(streamer2)
+        await sut.scheduler.flush()
         
         #expect(sut.contains(streamer: streamer1) == true)
         #expect(sut.contains(streamer: streamer2) == true)
         
         sut.unsubscribe(streamer1)
+        await sut.scheduler.flush()
         streamer2.continuation.finish()
         
         #expect(sut.contains(streamer: streamer1) == false)
         #expect(sut.contains(streamer: streamer2) == true)
         
         sut.dispatch(1)
+        await sut.scheduler.flush()
         
         #expect(sut.contains(streamer: streamer2) == false)
     }
     
-    @Test func storeDispatchActions() throws {
+    @Test func storeDispatchActions() async throws {
         let sut = makeSUT()
         
         sut.dispatch(1)
         sut.dispatch(1)
+        await sut.scheduler.flush()
         
         #expect(sut.state == 2)
         
         sut.dispatch(contentsOf: [1,2,3])
+        await sut.scheduler.flush()
         
         #expect(sut.state == 8)
     }
     
-    @Test func graphDispatchSingleAction() throws {
+    @Test func graphDispatchSingleAction() async throws {
         let sut = makeSUT()
         
         sut.snapshot.dispatch(1)
         sut.snapshot.dispatch(1)
         sut.snapshot.dispatch(1)
+        await sut.scheduler.flush()
         
         #expect(sut.state == 3)
     }
     
-    @Test func graphDispatchMultipleActions() throws {
+    @Test func graphDispatchMultipleActions() async throws {
         let sut = makeSUT()
         
         sut.snapshot.dispatch(1, 1, 1)
         sut.snapshot.dispatch(contentsOf: [1,1,1])
+        await sut.scheduler.flush()
                 
         #expect(sut.state == 6)
     }
@@ -98,14 +107,12 @@ struct StoreTests {
             await group.waitForAll()
         }
         
-        await withCheckedContinuation { continuation in
-            sut.scheduler.schedule(continuation.resume)
-        }
+        await sut.scheduler.flush()
                 
         #expect(sut.state == 102)
     }
     
-    @Test func subscribeStreamer() throws {
+    @Test func subscribeStreamer() async throws {
         let sut = makeSUT()
         let one = Streamer()
         let two = Streamer()
@@ -114,13 +121,14 @@ struct StoreTests {
         sut.install(one)
         sut.install(two)
         sut.install(three)
+        await sut.scheduler.flush()
         
         #expect(sut.contains(driver: one) == true)
         #expect(sut.contains(driver: two) == true)
         #expect(sut.contains(driver: three) == true)
     }
 
-    @Test func subscribeStreamerUsingBuilder() throws {
+    @Test func subscribeStreamerUsingBuilder() async throws {
         let sut = makeSUT()
         let one = Streamer()
         let two = Streamer()
@@ -131,6 +139,7 @@ struct StoreTests {
             two
             three
         }
+        await sut.scheduler.flush()
         
         #expect(sut.contains(driver: one) == true)
         #expect(sut.contains(driver: two) == true)
@@ -153,6 +162,7 @@ struct StoreTests {
         }
         
         actions.forEach(sut.snapshot.dispatch)
+        await sut.scheduler.flush()
         driver.continuation.finish()
         
         let result = await task.value
@@ -173,6 +183,7 @@ struct StoreTests {
         }
         
         sut.snapshot.dispatch(contentsOf: actions)
+        await sut.scheduler.flush()
         driver.continuation.finish()
         
         let result = await task.value
@@ -193,6 +204,7 @@ struct StoreTests {
         }
 
         actions.forEach(sut.snapshot.dispatch)
+        await sut.scheduler.flush()
         streamer.continuation.finish()
         
         let result = await task.value
@@ -213,6 +225,7 @@ struct StoreTests {
         }
         
         sut.snapshot.dispatch(contentsOf: actions)
+        await sut.scheduler.flush()
         streamer.continuation.finish()
         
         let result = await task.value
@@ -220,13 +233,14 @@ struct StoreTests {
     }
     
     @Test func dispatchActionsInOrder() async throws {
-        let sut = Store(initial: [Int](), scheduler: ImmediateScheduler()) { $0.append($1) }
+        let sut = Store(initial: [Int](), scheduler: AsyncSerialScheduler()) { $0.append($1) }
         let actions = Array(
             repeating: Int(Int8.random(in: Int8.min...Int8.max)),
             count: Int.random(in: 1...10000)
         )
         
         actions.forEach(sut.dispatch(_:))
+        await sut.scheduler.flush()
         
         #expect(sut.state.count == actions.count)
         #expect(sut.state == actions)
@@ -234,24 +248,9 @@ struct StoreTests {
 }
 
 private extension StoreTests {
-    struct ImmediateScheduler: ReduxScheduler {
-        func schedule(_ work: @escaping () -> Void) {
-            work()
-        }
-
-        func schedule(_ work: @escaping @Sendable () async -> Void) {
-            Task(operation: work)
-        }
-
-        func flush() async {
-            // All sync work executes inline; async work is fire-and-forget.
-            // For store tests, no async work is expected.
-        }
-    }
-    
     //MARK: - Helpers
     func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: ImmediateScheduler()) { $0 += $1 }
+        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
     }
 }
 
