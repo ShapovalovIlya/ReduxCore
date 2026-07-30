@@ -52,6 +52,28 @@ public protocol ReduxScheduler {
     ///
     /// - Parameter work: An async closure to be scheduled for execution.
     func schedule(_ work: @escaping @Sendable () async -> Void)
+
+    /// Waits for all previously scheduled work to complete.
+    ///
+    /// This method suspends until every work item submitted via ``schedule(_:)``
+    /// (both sync and async overloads) prior to the call has finished execution.
+    /// It guarantees **serial drain order**: scheduled items added after `flush()`
+    /// are not waited on.
+    ///
+    /// ## When to Use
+    /// - **Testing** — ensure the scheduler has settled before asserting state.
+    /// - **Barrier points** — in async code that needs to observe the effects of
+    ///   all prior scheduled work before proceeding.
+    ///
+    /// ## Implementation Requirements
+    /// Conforming types must preserve the serial execution guarantee: after
+    /// `flush()` returns, any work that was scheduled before the call must be
+    /// fully executed. Work scheduled concurrently with or after `flush()` may
+    /// or may not be included, but the implementation must not deadlock.
+    ///
+    /// - Important: This method is `async`. It does not block the calling thread;
+    ///   it suspends until the drain completes.
+    func flush() async
 }
 
 extension DispatchQueue: ReduxScheduler {
@@ -104,10 +126,18 @@ extension DispatchQueue: ReduxScheduler {
         let semaphore = DispatchSemaphore(value: 0)
         schedule {
             Task {
+                defer {
+                    semaphore.signal()
+                }
                 await work()
-                semaphore.signal()
             }
             semaphore.wait()
+        }
+    }
+
+    public func flush() async {
+        await withCheckedContinuation { continuation in
+            schedule { continuation.resume() }
         }
     }
 }
@@ -241,5 +271,45 @@ public final class AsyncSerialScheduler: ReduxScheduler, Sendable {
     ///   the scheduler's configured `TaskPriority`.
     public func schedule(_ work: @escaping @Sendable () async -> Void) {
         continuation.yield(work)
+    }
+
+    /// Waits for all previously scheduled work to complete.
+    ///
+    /// `flush()` enqueues a sentinel work item at the end of the internal
+    /// `AsyncStream` and suspends until it executes. Because the backing
+    /// `Task` loop processes items serially (``schedule(_:)``), this guarantees
+    /// that every work item enqueued before the `flush()` call has finished
+    /// before the method returns.
+    ///
+    /// ## Mechanism
+    /// ```
+    /// schedule(work1) ──┐
+    /// schedule(work2) ──┤
+    /// flush():          │
+    ///   schedule(resume)─┤──→ for await ──→ work1() → work2() → resume()
+    ///                    │                              └── continuation.resume()
+    ///                  FIFO ─── serial order ───▶
+    /// ```
+    ///
+    /// ## Usage
+    /// ```swift
+    /// let scheduler = AsyncSerialScheduler()
+    /// scheduler.schedule { print("first") }
+    /// scheduler.schedule { print("second") }
+    /// await scheduler.flush()
+    /// // Both closures have completed at this point.
+    /// ```
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any task or thread.
+    /// It uses ``withCheckedContinuation`` under the hood, which resumes on
+    /// the same executor as the scheduler's backing task.
+    ///
+    /// - Note: Work scheduled **after** `flush()` is not waited on. Call
+    ///   `flush()` again if you need to drain subsequent work.
+    public func flush() async {
+        await withCheckedContinuation { continuation in
+            schedule { continuation.resume() }
+        }
     }
 }

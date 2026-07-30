@@ -98,7 +98,7 @@ import ReduxSync
 ///
 /// The `Store` class provides a robust foundation for scalable, predictable state management in any Swift application.
 @dynamicMemberLookup
-public final class Store<State, Action: Sendable>: ReduxStore, @unchecked Sendable {
+public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
 
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
@@ -128,7 +128,7 @@ public final class Store<State, Action: Sendable>: ReduxStore, @unchecked Sendab
     /// }
     /// ```
     ///
-    public typealias Reducer = (inout State, Action) -> Void
+    public typealias Reducer = (inout S, A) -> Void
     
     /// A type alias for a state streamer that emits `GraphStore` (graph) state updates.
     ///
@@ -193,9 +193,9 @@ public final class Store<State, Action: Sendable>: ReduxStore, @unchecked Sendab
     /// ```
     ///
     public let reducer: Reducer
-    public var state: State { _state.withLock(\.self) }
+    public var state: S { _state.withLock(\.self) }
 
-    private var _state: OSUnfairLock<State>
+    private var _state: OSUnfairLock<S>
 
     /// A computed property that provides a ‎``Snapshot``—an abstraction encapsulating the current state and a dispatcher for actions.
     ///
@@ -277,7 +277,7 @@ public final class Store<State, Action: Sendable>: ReduxStore, @unchecked Sendab
     /// ```
     ///
     public init(
-        initial state: State,
+        initial state: S,
         scheduler: some ReduxScheduler = DispatchQueue.storeScheduler,
         reducer: @escaping Reducer
     ) {
@@ -314,7 +314,7 @@ public final class Store<State, Action: Sendable>: ReduxStore, @unchecked Sendab
     
     @Sendable
     @usableFromInline
-    func dispatcher(_ actions: some Collection<Action>) {
+    func dispatcher(_ actions: some Collection<A>) {
         if actions.isEmpty { return }
         DispatchQueue.main.async {
             self.objectWillChange.send()
@@ -621,7 +621,7 @@ public extension Store {
     ///
     @inlinable
     @Sendable
-    func dispatch(_ action: Action) {
+    func dispatch(_ action: A) {
         dispatcher(CollectionOfOne(action))
     }
     
@@ -657,7 +657,7 @@ public extension Store {
     ///
     @inlinable
     @Sendable
-    func dispatch(contentsOf s: some Sequence<Action>) {
+    func dispatch(contentsOf s: some Sequence<A>) {
         dispatcher(Array(s))
     }
 }

@@ -8,6 +8,8 @@
 import Testing
 import ReduxCore
 
+extension Int: @retroactive Action {}
+
 struct SchedulerTests {
 
     // MARK: - Helpers
@@ -26,9 +28,7 @@ struct SchedulerTests {
             sut.schedule { accumulator.append(index) }
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            sut.schedule { continuation.resume() }
-        }
+        await sut.flush()
 
         #expect(accumulator.values == [1, 2, 3, 4, 5])
     }
@@ -46,9 +46,7 @@ struct SchedulerTests {
             }
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            sut.schedule { continuation.resume() }
-        }
+        await sut.flush()
 
         #expect(accumulator.values == [1, 2, 3, 4, 5])
     }
@@ -71,9 +69,7 @@ struct SchedulerTests {
         }
         sut.schedule { accumulator.append(5) }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            sut.schedule { continuation.resume() }
-        }
+        await sut.flush()
 
         #expect(accumulator.values == [1, 2, 3, 4, 5])
     }
@@ -93,12 +89,70 @@ struct SchedulerTests {
             await group.waitForAll()
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            sut.schedule { continuation.resume() }
-        }
+        await sut.flush()
 
         #expect(accumulator.values.count == 20)
         #expect(Set(accumulator.values) == Set(1...20))
+    }
+
+    // MARK: - Flush behavior
+
+    @Test func flushWaitsForAllScheduledWork() async throws {
+        let sut = makeSUT()
+        let step = Accumulator()
+
+        sut.schedule { step.append(1) }
+        sut.schedule {
+            try? await Task.sleep(nanoseconds: 200_000)
+            step.append(2)
+        }
+        sut.schedule { step.append(3) }
+
+        await sut.flush()
+
+        #expect(step.values == [1, 2, 3])
+    }
+
+    @Test func multipleFlushCallsInSequence() async throws {
+        let sut = makeSUT()
+        let step = Accumulator()
+
+        sut.schedule { step.append(1) }
+        sut.schedule { step.append(2) }
+        await sut.flush()
+        #expect(step.values == [1, 2])
+
+        sut.schedule { step.append(3) }
+        sut.schedule { step.append(4) }
+        await sut.flush()
+        #expect(step.values == [1, 2, 3, 4])
+    }
+
+    @Test func flushWithNoScheduledWork() async throws {
+        let sut = makeSUT()
+
+        // Should complete without hanging when queue is idle
+        await sut.flush()
+    }
+
+    @Test func flushAndConcurrentSchedule() async throws {
+        let sut = makeSUT()
+        let step = Accumulator()
+
+        // Schedule work from multiple tasks concurrently, then flush
+        await withTaskGroup(of: Void.self) { group in
+            for index in 1...10 {
+                group.addTask {
+                    sut.schedule { step.append(index) }
+                }
+            }
+            await group.waitForAll()
+        }
+
+        await sut.flush()
+
+        #expect(step.values.count == 10)
+        #expect(Set(step.values) == Set(1...10))
     }
 
     // MARK: - Store integration
@@ -113,9 +167,7 @@ struct SchedulerTests {
 
         store.dispatch(contentsOf: [1, 2, 3, 4, 5])
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            scheduler.schedule { continuation.resume() }
-        }
+        await scheduler.flush()
 
         #expect(store.state == [1, 2, 3, 4, 5])
     }
@@ -135,11 +187,45 @@ struct SchedulerTests {
             await group.waitForAll()
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            scheduler.schedule { continuation.resume() }
-        }
+        await scheduler.flush()
 
         #expect(store.state == 50)
+    }
+
+    @Test func storeIntegrationWithFlush() async throws {
+        let scheduler = makeSUT()
+        let store = Store<Int, Int>(
+            initial: 0,
+            scheduler: scheduler,
+            reducer: { $0 += $1 }
+        )
+
+        store.dispatch(3)
+        store.dispatch(5)
+        store.dispatch(2)
+
+        await scheduler.flush()
+
+        #expect(store.state == 10)
+    }
+
+    @Test func storeIntegrationWithMultipleFlushes() async throws {
+        let scheduler = makeSUT()
+        let store = Store<Int, Int>(
+            initial: 0,
+            scheduler: scheduler,
+            reducer: { $0 += $1 }
+        )
+
+        store.dispatch(1)
+        store.dispatch(2)
+        await scheduler.flush()
+        #expect(store.state == 3)
+
+        store.dispatch(3)
+        store.dispatch(4)
+        await scheduler.flush()
+        #expect(store.state == 10)
     }
 
     // MARK: - Deinit
@@ -158,6 +244,17 @@ struct SchedulerTests {
 
         #expect(weakRef == nil)
     }
+
+    @Test func flushBeforeDeinit() async throws {
+        let scheduler = makeSUT()
+        weak var weakScheduler: AsyncSerialScheduler? = scheduler
+
+        scheduler.schedule { /* no-op */ }
+        await scheduler.flush()
+
+        // Verify no crash and scheduler becomes nil after all refs drop
+        withExtendedLifetime(scheduler) {}
+    }
 }
 
 // MARK: - Helpers
@@ -171,12 +268,5 @@ private extension SchedulerTests {
         func append(_ value: Int) {
             values.append(value)
         }
-    }
-
-    /// Simple mutable box for boolean state.
-    final class MutableBox<T>: @unchecked Sendable {
-        var value: T
-        init(_ value: T) { self.value = value }
-        func set(_ newValue: T) { value = newValue }
     }
 }

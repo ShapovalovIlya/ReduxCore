@@ -242,6 +242,11 @@ private extension StoreTests {
         func schedule(_ work: @escaping @Sendable () async -> Void) {
             Task(operation: work)
         }
+
+        func flush() async {
+            // All sync work executes inline; async work is fire-and-forget.
+            // For store tests, no async work is expected.
+        }
     }
     
     //MARK: - Helpers
