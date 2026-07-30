@@ -102,7 +102,8 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
 
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
-    
+    public typealias Hook<T> = AsyncStream<(state: S, action: T)>
+
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
     /// The `Reducer` defines the signature for a pure function that takes the current state (as an inout parameter)
@@ -252,7 +253,10 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
     
     @usableFromInline
     private(set) var subscribers = [AnyHashable: AsyncStream<Store>.Continuation]()
-    
+
+    @usableFromInline
+    private(set) var hooks = [UUID: (S, A) -> Void]()
+
     //MARK: - init(_:)
     
     /// Initializes a new ``Store`` instance with the provided initial state, quality of service, and reducer.
@@ -278,7 +282,7 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
     ///
     public init(
         initial state: S,
-        scheduler: some ReduxScheduler = DispatchQueue.storeScheduler,
+        scheduler: some ReduxScheduler = AsyncSerialScheduler(),
         reducer: @escaping Reducer
     ) {
         self._state = OSUnfairLock(initial: state)
@@ -316,31 +320,180 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
     @usableFromInline
     func dispatcher(_ actions: some Collection<A>) {
         if actions.isEmpty { return }
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+
         let pending = Array(actions)
         scheduler.schedule { [self] in
-            let updated = pending.reduce(into: _state.withLock(\.self), reducer)
+            let current = _state.withLock(\.self)
+
+            let updated = pending.reduce(into: current) { updated, action in
+                reducer(&updated, action)
+
+                hooks.forEach { _, hook in
+                    hook(updated, action)
+                }
+            }
             _state.withLock { $0 = updated }
 
-            if !continuations.isEmpty {
-                continuations.forEach(yield(snapshot))
-            }
-            
-            if !subscribers.isEmpty {
-                subscribers.forEach(yield)
-            }
-            
+            continuations.forEach(yield(snapshot))
+            subscribers.forEach(yield)
+
             // deprecated support
             observers.forEach(notify)
+
+            await MainActor.run {
+                self.objectWillChange.send()
+            }
         }
     }
 }
 
 //MARK: - Public Methods
 public extension Store {
-    
+
+    /// Creates an `AsyncStream` that emits state-action pairs for actions of
+    /// the specified type ``Action``.
+    ///
+    /// Unlike ``updates(_:)`` which emits snapshots after the full action batch
+    /// is processed, `addHook` fires **inside** the reduce loop — after each
+    /// individual action is reduced. This allows you to observe intermediate
+    /// state even when actions are dispatched as a batch via
+    /// ``dispatch(contentsOf:)``.
+    ///
+    /// The stream only yields values when the dispatched action matches the
+    /// specified type `T`. Non-matching actions are silently ignored.
+    ///
+    /// - Parameters:
+    ///   - buffering: The buffering policy for the stream.
+    ///     Defaults to `.unbounded`.
+    ///   - type: The action type to observe. Only actions of this type trigger
+    ///     a yield.
+    /// - Returns: An `AsyncStream` of `(state: S, action: T)` tuples.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let store = Store<AppState, AppAction>(...)
+    ///
+    /// Task {
+    ///     for await (state, action) in store.addHook(on: LoginAction.self) {
+    ///         print("Login action \(action) updated state to \(state)")
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Performance Considerations
+    /// - The hook closure runs inside the reduce loop for every dispatched
+    ///   action, including each action in a batch.
+    /// - A runtime type check (`action as? T`) is performed per hook per
+    ///   action. This is O(1) but should be considered when registering many
+    ///   hooks.
+    /// - When no hooks are registered, the reduce loop has zero overhead from
+    ///   hooks.
+    ///
+    /// ## Thread Safety
+    /// - The hook closure and state values are delivered on the store's
+    ///   scheduler queue, which is serial by default.
+    /// - Registration and cleanup are also scheduled on the same serial queue.
+    ///
+    /// ## Lifecycle
+    /// - The hook is automatically removed from the store when the stream
+    ///   iteration ends or the stream's continuation is explicitly finished.
+    /// - Abandoning the stream without finishing it will keep the hook
+    ///   registered until the store is deallocated.
+    ///
+    /// - Important: Unlike ``updates(_:)``, this method does **not** yield an
+    ///   initial value. It only emits when a matching action is dispatched.
+    func addHook<T: ReduxCore.Action>(
+        _ buffering: Hook<T>.Continuation.BufferingPolicy = .unbounded,
+        on type: T.Type
+    ) -> Hook<T> {
+        addHook(buffering) { $0 as? T }
+    }
+
+    /// Creates an `AsyncStream` that emits state-action pairs for actions
+    /// extracted by a custom lens closure.
+    ///
+    /// Unlike ``addHook(_:on:)`` which filters by action type at runtime, this
+    /// overload gives you full control over the extraction logic. The `lens`
+    /// closure receives every dispatched action and returns an optional
+    /// extracted value. When the closure returns non-`nil`, the stream yields
+    /// `(state, extractedValue)`.
+    ///
+    /// This is useful for:
+    /// - Extracting associated values from enum actions
+    /// - Observing multiple related action types via a single lens
+    /// - Transforming or enriching actions before they reach the consumer
+    ///
+    /// - Parameters:
+    ///   - buffering: The buffering policy for the stream.
+    ///     Defaults to `.unbounded`.
+    ///   - lens: A closure that extracts an optional value of type `T` from
+    ///     an action. Return `nil` to skip the action, or a value to yield it
+    ///     on the stream.
+    /// - Returns: An `AsyncStream` of `(state: S, action: T)` tuples, where
+    ///   `T` is the extracted value type.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// enum AppAction {
+    ///     case login(username: String)
+    ///     case logout
+    ///     case increment(Int)
+    /// }
+    ///
+    /// let store = Store<AppState, AppAction>(...)
+    ///
+    /// // Extract associated value from an enum action
+    /// Task {
+    ///     for await (state, username) in store.addHook(lens: { action in
+    ///         guard case .login(let name) = action else { return nil }
+    ///         return name
+    ///     }) {
+    ///         print("User \(username) logged in, state: \(state)")
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Performance Considerations
+    /// - The `lens` closure runs inside the reduce loop for every dispatched
+    ///   action. Keep it lightweight — avoid I/O or heavy computation.
+    /// - When no hooks are registered, the reduce loop has zero overhead from
+    ///   hooks.
+    ///
+    /// ## Thread Safety
+    /// - The `lens` closure and yielded values are delivered on the store's
+    ///   serial scheduler queue. The closure must be `@Sendable`.
+    /// - Registration and cleanup are also scheduled on the same serial queue.
+    ///
+    /// ## Lifecycle
+    /// - The hook is automatically removed from the store when the stream
+    ///   iteration ends or the stream's continuation is explicitly finished.
+    /// - The store reference is `weak` inside the hook, so the store can be
+    ///   deallocated even if the stream is abandoned.
+    ///
+    /// - SeeAlso: ``addHook(_:on:)`` for simple type-based filtering.
+    func addHook<T>(
+        _ buffering: Hook<T>.Continuation.BufferingPolicy = .unbounded,
+        lens: @escaping @Sendable (A) -> T?
+    ) -> Hook<T> {
+        AsyncStream(bufferingPolicy: buffering) { continuation in
+            let id = UUID()
+            scheduler.schedule { [weak self] in
+                self?.hooks[id] = { state, action in
+                    guard let result = lens(action) else { return }
+                    continuation.yield((state, result))
+                }
+            }
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.scheduler.schedule {
+                    self.hooks[id] = nil
+                }
+            }
+        }
+    }
+
     /// Creates an `AsyncStream` that emits state updates from the store.
     ///
     /// - Parameter buffering: The buffering policy for the stream.
