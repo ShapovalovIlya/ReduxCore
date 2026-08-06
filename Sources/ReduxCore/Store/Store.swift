@@ -98,11 +98,14 @@ import ReduxSync
 ///
 /// The `Store` class provides a robust foundation for scalable, predictable state management in any Swift application.
 @dynamicMemberLookup
-public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
+public final class Store<S: Sendable, A: Action>: ReduxStore, @unchecked Sendable {
 
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
     public typealias Hook<T> = AsyncStream<(state: S, action: T)>
+    public typealias PermissionGate = @Sendable (S, A) -> Bool
+    public typealias Middleware = @Sendable (S, A) -> [A]
+    public typealias Effect = @Sendable (S, A) async -> Void
 
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
@@ -254,8 +257,9 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
     @usableFromInline
     private(set) var subscribers = [AnyHashable: AsyncStream<Store>.Continuation]()
 
-    @usableFromInline
-    private(set) var hooks = [UUID: (S, A) -> Void]()
+    private var permissions = [UUID: PermissionGate]()
+    private var middleware = [UUID: Middleware]()
+    private var effects = [UUID: Effect]()
 
     //MARK: - init(_:)
     
@@ -315,23 +319,60 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
             }
         }
     }
-    
+
+    func runPermissions(state: State, action: Action) -> Bool {
+        if permissions.isEmpty {
+            return true
+        }
+        return permissions.values.lazy
+            .map { $0(state,action) }
+            .reduce(true) { $0 && $1 }
+    }
+
+    func runMiddleware(state: State, action: Action) -> [Action] {
+        if middleware.isEmpty {
+            return [action]
+        }
+        return middleware.values.lazy
+            .flatMap { $0(state,action) }
+            .reduce(into: [action], +=)
+    }
+
+    func runEffects(state: State, action: Action) async {
+        if effects.isEmpty {
+            return
+        }
+        await withTaskGroup { group in
+            effects.values.forEach { effect in
+                group.addTask {
+                    await effect(state,action)
+                }
+            }
+        }
+    }
+
     @Sendable
     @usableFromInline
     func dispatcher(_ actions: some Collection<A>) {
         if actions.isEmpty { return }
 
         let pending = Array(actions)
-        scheduler.schedule { [self] in
+        scheduler.schedule { [weak self] in
+            guard let self else { return }
+
             let current = _state.withLock(\.self)
 
-            let updated = pending.reduce(into: current) { updated, action in
-                reducer(&updated, action)
+            let updated = pending.lazy
+                .filter { self.runPermissions(state: current, action: $0) }
+                .flatMap { self.runMiddleware(state: current, action: $0) }
+                .reduce(into: current) { updated, action in
+                    self.reducer(&updated, action)
 
-                hooks.forEach { _, hook in
-                    hook(updated, action)
+                    Task { [updated] in
+                        await self.runEffects(state: updated, action: action)
+                    }
                 }
-            }
+
             _state.withLock { $0 = updated }
 
             continuations.forEach(yield(snapshot))
@@ -340,7 +381,7 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
             // deprecated support
             observers.forEach(notify)
 
-            await MainActor.run {
+            Task { @MainActor in
                 self.objectWillChange.send()
             }
         }
@@ -349,148 +390,48 @@ public final class Store<S, A: Action>: ReduxStore, @unchecked Sendable {
 
 //MARK: - Public Methods
 public extension Store {
-
-    /// Creates an `AsyncStream` that emits state-action pairs for actions of
-    /// the specified type ``Action``.
-    ///
-    /// Unlike ``updates(_:)`` which emits snapshots after the full action batch
-    /// is processed, `addHook` fires **inside** the reduce loop — after each
-    /// individual action is reduced. This allows you to observe intermediate
-    /// state even when actions are dispatched as a batch via
-    /// ``dispatch(contentsOf:)``.
-    ///
-    /// The stream only yields values when the dispatched action matches the
-    /// specified type `T`. Non-matching actions are silently ignored.
-    ///
-    /// - Parameters:
-    ///   - buffering: The buffering policy for the stream.
-    ///     Defaults to `.unbounded`.
-    ///   - type: The action type to observe. Only actions of this type trigger
-    ///     a yield.
-    /// - Returns: An `AsyncStream` of `(state: S, action: T)` tuples.
-    ///
-    /// ## Usage
-    ///
-    /// ```swift
-    /// let store = Store<AppState, AppAction>(...)
-    ///
-    /// Task {
-    ///     for await (state, action) in store.addHook(on: LoginAction.self) {
-    ///         print("Login action \(action) updated state to \(state)")
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// ## Performance Considerations
-    /// - The hook closure runs inside the reduce loop for every dispatched
-    ///   action, including each action in a batch.
-    /// - A runtime type check (`action as? T`) is performed per hook per
-    ///   action. This is O(1) but should be considered when registering many
-    ///   hooks.
-    /// - When no hooks are registered, the reduce loop has zero overhead from
-    ///   hooks.
-    ///
-    /// ## Thread Safety
-    /// - The hook closure and state values are delivered on the store's
-    ///   scheduler queue, which is serial by default.
-    /// - Registration and cleanup are also scheduled on the same serial queue.
-    ///
-    /// ## Lifecycle
-    /// - The hook is automatically removed from the store when the stream
-    ///   iteration ends or the stream's continuation is explicitly finished.
-    /// - Abandoning the stream without finishing it will keep the hook
-    ///   registered until the store is deallocated.
-    ///
-    /// - Important: Unlike ``updates(_:)``, this method does **not** yield an
-    ///   initial value. It only emits when a matching action is dispatched.
-    func addHook<T: ReduxCore.Action>(
-        _ buffering: Hook<T>.Continuation.BufferingPolicy = .unbounded,
-        on type: T.Type
-    ) -> Hook<T> {
-        addHook(buffering) { $0 as? T }
+    @discardableResult
+    func addPermission(_ permission: @escaping PermissionGate) -> UUID {
+        let id = UUID()
+        scheduler.schedule { [weak self] in
+            self?.permissions[id] = permission
+        }
+        return id
     }
 
-    /// Creates an `AsyncStream` that emits state-action pairs for actions
-    /// extracted by a custom lens closure.
-    ///
-    /// Unlike ``addHook(_:on:)`` which filters by action type at runtime, this
-    /// overload gives you full control over the extraction logic. The `lens`
-    /// closure receives every dispatched action and returns an optional
-    /// extracted value. When the closure returns non-`nil`, the stream yields
-    /// `(state, extractedValue)`.
-    ///
-    /// This is useful for:
-    /// - Extracting associated values from enum actions
-    /// - Observing multiple related action types via a single lens
-    /// - Transforming or enriching actions before they reach the consumer
-    ///
-    /// - Parameters:
-    ///   - buffering: The buffering policy for the stream.
-    ///     Defaults to `.unbounded`.
-    ///   - lens: A closure that extracts an optional value of type `T` from
-    ///     an action. Return `nil` to skip the action, or a value to yield it
-    ///     on the stream.
-    /// - Returns: An `AsyncStream` of `(state: S, action: T)` tuples, where
-    ///   `T` is the extracted value type.
-    ///
-    /// ## Usage
-    ///
-    /// ```swift
-    /// enum AppAction {
-    ///     case login(username: String)
-    ///     case logout
-    ///     case increment(Int)
-    /// }
-    ///
-    /// let store = Store<AppState, AppAction>(...)
-    ///
-    /// // Extract associated value from an enum action
-    /// Task {
-    ///     for await (state, username) in store.addHook(lens: { action in
-    ///         guard case .login(let name) = action else { return nil }
-    ///         return name
-    ///     }) {
-    ///         print("User \(username) logged in, state: \(state)")
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// ## Performance Considerations
-    /// - The `lens` closure runs inside the reduce loop for every dispatched
-    ///   action. Keep it lightweight — avoid I/O or heavy computation.
-    /// - When no hooks are registered, the reduce loop has zero overhead from
-    ///   hooks.
-    ///
-    /// ## Thread Safety
-    /// - The `lens` closure and yielded values are delivered on the store's
-    ///   serial scheduler queue. The closure must be `@Sendable`.
-    /// - Registration and cleanup are also scheduled on the same serial queue.
-    ///
-    /// ## Lifecycle
-    /// - The hook is automatically removed from the store when the stream
-    ///   iteration ends or the stream's continuation is explicitly finished.
-    /// - The store reference is `weak` inside the hook, so the store can be
-    ///   deallocated even if the stream is abandoned.
-    ///
-    /// - SeeAlso: ``addHook(_:on:)`` for simple type-based filtering.
-    func addHook<T>(
-        _ buffering: Hook<T>.Continuation.BufferingPolicy = .unbounded,
-        lens: @escaping @Sendable (A) -> T?
-    ) -> Hook<T> {
-        AsyncStream(bufferingPolicy: buffering) { continuation in
-            let id = UUID()
-            scheduler.schedule { [weak self] in
-                self?.hooks[id] = { state, action in
-                    guard let result = lens(action) else { return }
-                    continuation.yield((state, result))
-                }
-            }
-            continuation.onTermination = { [weak self] _ in
-                guard let self else { return }
-                self.scheduler.schedule {
-                    self.hooks[id] = nil
-                }
-            }
+    func removePermission(withId id: UUID) {
+        scheduler.schedule { [weak self] in
+            self?.permissions[id] = nil
+        }
+    }
+
+    @discardableResult
+    func addMiddleware(_ middleware: @escaping Middleware) -> UUID {
+        let id = UUID()
+        scheduler.schedule { [weak self] in
+            self?.middleware[id] = middleware
+        }
+        return id
+    }
+
+    func removeMiddleware(withId id: UUID) {
+        scheduler.schedule { [weak self] in
+            self?.middleware[id] = nil
+        }
+    }
+
+    @discardableResult
+    func addEffect(_ effect: @escaping Effect) -> UUID {
+        let id = UUID()
+        scheduler.schedule { [weak self] in
+            self?.effects[id] = effect
+        }
+        return id
+    }
+
+    func removeEffect(withId id: UUID) {
+        scheduler.schedule { [weak self] in
+            self?.effects[id] = nil
         }
     }
 
