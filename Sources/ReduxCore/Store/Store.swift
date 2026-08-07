@@ -98,7 +98,7 @@ import ReduxSync
 ///
 /// The `Store` class provides a robust foundation for scalable, predictable state management in any Swift application.
 @dynamicMemberLookup
-public final class Store<S: Sendable, A: Action>: ReduxStore, @unchecked Sendable {
+public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Sendable {
 
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
