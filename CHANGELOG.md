@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.1]
+
+### Changed
+
+- `Store` now constrains its action generic parameter to `Sendable` instead of the stricter `Action` protocol, allowing `Store` to be used with custom `Sendable` action types that do not conform to `Action`
+- Untracked Swift Package Manager build artifacts (`.swiftpm`) to keep the repository git index clean
+
 ## [2.4]
 
 ### Added
@@ -13,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - `flush()` on `ReduxScheduler` and `AsyncSerialScheduler` — synchronously drain pending scheduled actions
 
 ### Changed
+
 - Store now uses `ReduxScheduler` instead of a strict GCD dependency, enabling pluggable scheduling strategies
 - Migrated StoreTests from `ImmediateScheduler` to `AsyncSerialScheduler` for deterministic async testing
 
@@ -24,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - ``CLAUDE.md` — AI-assisted development guidelines for the repository
 
 ### Changed
+
 - `README.md` — expanded documentation with detailed API usage examples, installation instructions, and quick-start guide
 
 ## [2.2]
