@@ -103,8 +103,16 @@ public final class Store<S: Sendable, A: Action>: ReduxStore, @unchecked Sendabl
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
     public typealias Hook<T> = AsyncStream<(state: S, action: T)>
+    /// A permission gate is a predicate that determines whether an action is allowed
+    /// to reach the reducer. All installed permission gates must return `true` for the
+    /// action to proceed (AND logic).
     public typealias PermissionGate = @Sendable (S, A) -> Bool
+    /// A middleware function that intercepts each dispatched action and returns a list
+    /// of additional actions to process. All middleware results are flat-mapped into the
+    /// action pipeline before reduction.
     public typealias Middleware = @Sendable (S, A) -> [A]
+    /// An async effect triggered after each action is reduced. Effects run concurrently
+    /// in a `TaskGroup` and do not block the reducer.
     public typealias Effect = @Sendable (S, A) async -> Void
 
     /// A type alias for the reducer function that handles actions and mutates the store's state.
@@ -257,9 +265,9 @@ public final class Store<S: Sendable, A: Action>: ReduxStore, @unchecked Sendabl
     @usableFromInline
     private(set) var subscribers = [AnyHashable: AsyncStream<Store>.Continuation]()
 
-    private var permissions = [UUID: PermissionGate]()
-    private var middleware = [UUID: Middleware]()
-    private var effects = [UUID: Effect]()
+    private var permissions = OSUnfairLock<[UUID: PermissionGate]>(initial: [:])
+    private var middleware = OSUnfairLock<[UUID: Middleware]>(initial: [:])
+    private var effects = OSUnfairLock<[UUID: Effect]>(initial: [:])
 
     //MARK: - init(_:)
     
@@ -321,29 +329,29 @@ public final class Store<S: Sendable, A: Action>: ReduxStore, @unchecked Sendabl
     }
 
     func runPermissions(state: State, action: Action) -> Bool {
-        if permissions.isEmpty {
+        if permissions.withLock(\.isEmpty) {
             return true
         }
-        return permissions.values.lazy
+        return permissions.withLock(\.values).lazy
             .map { $0(state,action) }
-            .reduce(true) { $0 && $1 }
+            .allSatisfy { $0 }
     }
 
     func runMiddleware(state: State, action: Action) -> [Action] {
-        if middleware.isEmpty {
+        if middleware.withLock(\.isEmpty) {
             return [action]
         }
-        return middleware.values.lazy
+        return middleware.withLock(\.values).lazy
             .flatMap { $0(state,action) }
             .reduce(into: [action], +=)
     }
 
     func runEffects(state: State, action: Action) async {
-        if effects.isEmpty {
+        if effects.withLock(\.isEmpty) {
             return
         }
         await withTaskGroup { group in
-            effects.values.forEach { effect in
+            effects.withLock(\.values).forEach { effect in
                 group.addTask {
                     await effect(state,action)
                 }
@@ -390,49 +398,172 @@ public final class Store<S: Sendable, A: Action>: ReduxStore, @unchecked Sendabl
 
 //MARK: - Public Methods
 public extension Store {
+    /// Adds a permission gate to the store's action dispatch pipeline.
+    ///
+    /// Permission gates act as filters: before any action reaches the reducer, all
+    /// installed gates are evaluated in insertion order. Every gate must return `true`
+    /// for the action to proceed; if any gate returns `false`, evaluation stops
+    /// immediately (short-circuit) and the action is silently dropped.
+    ///
+    /// - Parameter permission: A closure that receives the current state and the
+    ///   pending action, returning `true` to allow the action or `false` to block it.
+    /// - Returns: A `UUID` that you can pass to ``removePermission(withId:)`` to
+    ///   revoke this permission gate later.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let id = store.addPermission { state, action in
+    ///     state.user.isLoggedIn
+    /// }
+    ///
+    /// // Later, remove the gate
+    /// store.removePermission(withId: id)
+    /// ```
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// ### See Also
+    /// - ``removePermission(withId:)``
+    ///
     @discardableResult
     func addPermission(_ permission: @escaping PermissionGate) -> UUID {
         let id = UUID()
-        scheduler.schedule { [weak self] in
-            self?.permissions[id] = permission
-        }
+        self.permissions.withLock { $0[id] = permission }
         return id
     }
 
-    func removePermission(withId id: UUID) {
-        scheduler.schedule { [weak self] in
-            self?.permissions[id] = nil
-        }
+    /// Removes a previously installed permission gate by its identifier.
+    ///
+    /// - Parameter id: The `UUID` returned when the permission gate was added via
+    ///   ``addPermission(_:)``.
+    /// - Returns: The removed `PermissionGate` closure, or `nil` if no gate was
+    ///   registered under the given identifier.
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// ### See Also
+    /// - ``addPermission(_:)``
+    ///
+    @discardableResult
+    func removePermission(withId id: UUID) -> PermissionGate? {
+        self.permissions.withLock { $0.removeValue(forKey: id) }
     }
 
+    /// Adds a middleware function to the store's action dispatch pipeline.
+    ///
+    /// Each middleware receives the current state and every dispatched action, and
+    /// returns an array of additional actions. All middleware results are flat-mapped
+    /// and appended to the original action list before the reducer processes them.
+    ///
+    /// - Parameter middleware: A closure that receives the current state and an
+    ///   action, returning an array of additional actions to enqueue.
+    /// - Returns: A `UUID` that you can pass to ``removeMiddleware(withId:)`` to
+    ///   remove this middleware later.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let id = store.addMiddleware { state, action in
+    ///     if case .loginSuccess = action {
+    ///         return [.navigate(to: .home)]
+    ///     }
+    ///     return []
+    /// }
+    ///
+    /// // Later, remove the middleware
+    /// store.removeMiddleware(withId: id)
+    /// ```
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// ### See Also
+    /// - ``removeMiddleware(withId:)``
+    ///
     @discardableResult
     func addMiddleware(_ middleware: @escaping Middleware) -> UUID {
         let id = UUID()
-        scheduler.schedule { [weak self] in
-            self?.middleware[id] = middleware
-        }
+        self.middleware.withLock { $0[id] = middleware }
         return id
     }
 
-    func removeMiddleware(withId id: UUID) {
-        scheduler.schedule { [weak self] in
-            self?.middleware[id] = nil
-        }
+    /// Removes a previously installed middleware function by its identifier.
+    ///
+    /// - Parameter id: The `UUID` returned when the middleware was added via
+    ///   ``addMiddleware(_:)``.
+    /// - Returns: The removed `Middleware` closure, or `nil` if no middleware was
+    ///   registered under the given identifier.
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// ### See Also
+    /// - ``addMiddleware(_:)``
+    ///
+    @discardableResult
+    func removeMiddleware(withId id: UUID) -> Middleware? {
+        self.middleware.withLock { $0.removeValue(forKey: id) }
     }
 
+    /// Adds an async effect to the store.
+    ///
+    /// Effects are triggered after each action is reduced and the state has been
+    /// updated. All active effects run concurrently in a `TaskGroup`, so they do
+    /// not block the reducer or each other.
+    ///
+    /// - Parameter effect: An async closure that receives the updated state and the
+    ///   action that caused the change.
+    /// - Returns: A `UUID` that you can pass to ``removeEffect(withId:)`` to remove
+    ///   this effect later.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let id = store.addEffect { state, action in
+    ///     if case .fetchData = action {
+    ///         await analytics.log(.dataFetched)
+    ///     }
+    /// }
+    ///
+    /// // Later, remove the effect
+    /// store.removeEffect(withId: id)
+    /// ```
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// - Important: Effects run concurrently and should not assume any ordering
+    ///   between them.
+    ///
+    /// ### See Also
+    /// - ``removeEffect(withId:)``
+    ///
     @discardableResult
     func addEffect(_ effect: @escaping Effect) -> UUID {
         let id = UUID()
-        scheduler.schedule { [weak self] in
-            self?.effects[id] = effect
-        }
+        self.effects.withLock { $0[id] = effect }
         return id
     }
 
-    func removeEffect(withId id: UUID) {
-        scheduler.schedule { [weak self] in
-            self?.effects[id] = nil
-        }
+    /// Removes a previously installed effect by its identifier.
+    ///
+    /// - Parameter id: The `UUID` returned when the effect was added via
+    ///   ``addEffect(_:)``.
+    /// - Returns: The removed `Effect` closure, or `nil` if no effect was
+    ///   registered under the given identifier.
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// ### See Also
+    /// - ``addEffect(_:)``
+    ///
+    @discardableResult
+    func removeEffect(withId id: UUID) -> Effect? {
+        self.effects.withLock { $0.removeValue(forKey: id) }
     }
 
     /// Creates an `AsyncStream` that emits state updates from the store.
