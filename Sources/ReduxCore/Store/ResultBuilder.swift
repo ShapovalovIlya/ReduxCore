@@ -38,19 +38,39 @@ public extension Store {
     @resultBuilder
     enum ActionBuilder {
 
+        // Single-action statement -> one-element partial result.
         @inlinable
-        public static func buildBlock(_ components: A...) -> [A] {
-            components
+        public static func buildExpression(_ expression: A) -> [A] {
+            [expression]
+        }
+
+        // Array-of-actions statement -> pass-through.
+        @inlinable
+        public static func buildExpression(_ expression: [A]) -> [A] {
+            expression
+        }
+
+        // Void-valued statement (logging, side work) -> contributes nothing.
+        @inlinable
+        public static func buildExpression(_ expression: Void) -> [A] {
+            []
+        }
+
+        // Concatenates all statements (each already [A]) in source order.
+        @inlinable
+        public static func buildBlock(_ components: [A]...) -> [A] {
+            buildArray(components)
+        }
+
+        // Empty body -> contributes nothing.
+        @inlinable
+        public static func buildBlock() -> [A] {
+            []
         }
 
         @inlinable
         public static func buildArray(_ components: [[A]]) -> [A] {
             components.flatMap(\.self)
-        }
-
-        @inlinable
-        public static func buildBlock(_ components: [A]...) -> [A] {
-            buildArray(components)
         }
 
         @inlinable

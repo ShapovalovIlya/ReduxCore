@@ -1,0 +1,384 @@
+//
+//  StoreEffectActionTests.swift
+//
+//
+//  Created by Илья Шаповалов on 21.02.2026.
+//
+
+import Foundation
+import Testing
+import ReduxCore
+import ReduxStream
+
+/// Coverage for `Effect<A>` (action effects): re-dispatch of the returned
+/// follow-up action through the full pipeline, chaining, completion-order
+/// batching, removeEffect semantics, and store lifetime.
+struct StoreEffectActionTests {
+    typealias Sut = Store<Int, Int>
+
+    //MARK: - Re-dispatch through the full pipeline
+
+    @Test func testActionEffectRedispatchesFollowUpAction() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
+
+        sut.addEffect { (state: Int, action: Int) async throws -> Int in
+            await recorder.record(state: state, action: action)
+            guard action == 1 else { throw CancellationError() }
+            return 10
+        }
+
+        sut.dispatch(1)
+
+        // dispatch(1) reduces to 1; the effect returns 10 which is
+        // re-dispatched and reduces to 11.
+        let reached = await waitUntil { sut.state == 11 }
+        #expect(reached)
+        #expect(sut.state == 11)
+
+        // The effect receives the updated state and runs for every
+        // reduced action (including the follow-up it produced).
+        let states = await recorder.states
+        let actions = await recorder.actions
+        #expect(states == [1, 11])
+        #expect(actions == [1, 10])
+    }
+
+    @Test func testFollowUpVisibleToSubscribers() async throws {
+        let sut = makeSUT()
+        let buffer = StateBuffer()
+        let driver = StateStreamer<Sut.Snapshot>()
+        sut.install(driver)
+
+        let collect = Task {
+            for await snapshot in driver {
+                await buffer.append(snapshot.state)
+            }
+        }
+
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            return 10
+        }
+
+        sut.dispatch(1)
+
+        // Subscribers observe the initial state, the dispatched action,
+        // and the follow-up re-dispatch as separate notifications.
+        let drained = await waitUntil { await buffer.values == [0, 1, 11] }
+        #expect(drained)
+
+        driver.continuation.finish()
+        await collect.value
+    }
+
+    @Test func testFollowUpPassesThroughMiddleware() async throws {
+        let sut = makeSUT()
+
+        // Middleware appends an extra action when it sees the follow-up.
+        sut.addMiddleware { _, action in
+            if action == 10 { 100 }
+        }
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            return 10
+        }
+
+        sut.dispatch(1)
+
+        // dispatch(1) → 1; follow-up 10 → reducer adds 10, middleware
+        // adds 100 → 1 + 10 + 100 = 111.
+        let reached = await waitUntil { sut.state == 111 }
+        #expect(reached)
+        #expect(sut.state == 111)
+    }
+
+    @Test func testFollowUpBlockedByPermission() async throws {
+        let sut = makeSUT()
+        let tap = LockedTap()
+
+        // Permission blocks the follow-up action 10.
+        sut.addPermission { _, action in
+            tap.record(action)
+            return action != 10
+        }
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            return 10
+        }
+
+        sut.dispatch(1)
+
+        // Action 1 is checked twice (before and after middleware), the
+        // follow-up 10 is checked once and dropped on the first gate.
+        let gated = await waitUntil { tap.values == [1, 1, 10] }
+        #expect(gated)
+        #expect(sut.state == 1)
+    }
+
+    @Test func testThrowingActionEffectDispatchesNoFollowUp() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
+
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            await recorder.record(action: action)
+            guard action == 1 else { throw CancellationError() }
+            throw CancellationError()
+        }
+
+        sut.dispatch(1)
+
+        let effectRan = await waitUntil { await recorder.actions == [1] }
+        #expect(effectRan)
+        // A thrown effect produces no follow-up: state stays 1.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        #expect(sut.state == 1)
+        // The effect is never re-invoked for a follow-up that never arrives.
+        #expect(await recorder.actions == [1])
+    }
+
+    //MARK: - Chaining / re-entrancy
+
+    @Test func testEffectsChainFollowUps() async throws {
+        let sut = makeSUT()
+
+        // Effect A: 1 → 2. Effect B: 2 → 3. Re-dispatch chains both hops.
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            return 2
+        }
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 2 else { throw CancellationError() }
+            return 3
+        }
+
+        sut.dispatch(1)
+
+        // Chain terminates: effects throw for non-matching actions, so
+        // no infinite loop. Final state = 1 + 2 + 3 = 6.
+        let settled = await waitUntil { sut.state == 6 }
+        #expect(settled)
+        #expect(sut.state == 6)
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(sut.state == 6)
+    }
+
+    //MARK: - Completion-order dispatch of multiple action effects
+
+    @Test func testMultipleActionEffectsDispatchSeparately() async throws {
+        let sut = makeSUT()
+        let buffer = StateBuffer()
+        let driver = StateStreamer<Sut.Snapshot>()
+        sut.install(driver)
+
+        let collect = Task {
+            for await snapshot in driver {
+                await buffer.append(snapshot.state)
+            }
+        }
+
+        // Three effects with staggered delays so they complete in a
+        // (likely) observable order. Exact completion order is not
+        // asserted — only the deterministic guarantees below.
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            return 10
+        }
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            return 20
+        }
+        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+            guard action == 1 else { throw CancellationError() }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            return 30
+        }
+
+        sut.dispatch(1)
+
+        // All three follow-ups reduce: 1 + 10 + 20 + 30 = 61.
+        let reached = await waitUntil { sut.state == 61 }
+        #expect(reached)
+
+        // One notification per reduction: install + dispatch(1) +
+        // 3 follow-ups = 5 snapshots. Each follow-up is its own
+        // dispatch, otherwise the count would be 4.
+        let drained = await waitUntil { await buffer.values.count == 5 }
+        #expect(drained)
+
+        driver.continuation.finish()
+        await collect.value
+
+        let values = await buffer.values
+        #expect(values.first == 0)
+        #expect(values.last == 61)
+        // Positive additions → every intermediate state strictly grows,
+        // regardless of completion order.
+        #expect(values == values.sorted())
+    }
+
+    //MARK: - removeEffect semantics
+
+    @Test func testRemoveEffectDoesNotStopInFlightButBlocksFuture() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
+
+        let id = sut.addEffect { (_: Int, _: Int) async throws -> Void in
+            await recorder.markStarted()
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            await recorder.markFinished()
+        }
+
+        sut.dispatch(1)
+
+        // Wait until the effect is actually in flight.
+        let started = await waitUntil { await recorder.started == 1 }
+        #expect(started)
+
+        // Removal mid-flight does not cancel the running task.
+        let removed = sut.removeEffect(withId: id)
+        #expect(removed == true)
+
+        let finished = await waitUntil { await recorder.finished == 1 }
+        #expect(finished)
+        #expect(await recorder.started == 1)
+
+        // A sentinel still-registered effect proves dispatch(2) was
+        // processed; the removed effect must not run for it.
+        sut.addEffect { (_: Int, action: Int) async throws -> Void in
+            if action == 2 { await recorder.markSentinel() }
+        }
+        sut.dispatch(2)
+
+        let sentinelRan = await waitUntil { await recorder.sentinel == 1 }
+        #expect(sentinelRan)
+        #expect(await recorder.started == 1)
+        #expect(await recorder.finished == 1)
+    }
+
+    @Test func testRemoveEffectReturnsBool() {
+        let sut = makeSUT()
+
+        let voidID = sut.addEffect { (_: Int, _: Int) async throws -> Void in
+            ()
+        }
+        let actionID = sut.addEffect { (_: Int, _: Int) async throws -> Int in
+            1
+        }
+
+        #expect(sut.removeEffect(withId: voidID) == true)
+        #expect(sut.removeEffect(withId: voidID) == false)
+        #expect(sut.removeEffect(withId: actionID) == true)
+        #expect(sut.removeEffect(withId: actionID) == false)
+        #expect(sut.removeEffect(withId: UUID()) == false)
+    }
+
+    //MARK: - Store lifetime
+
+    @Test func testStoreDeallocatesWhileEffectInFlight() async throws {
+        var sut: Store<Int, Int>? = Store(
+            initial: 0,
+            scheduler: AsyncSerialScheduler()
+        ) { $0 += $1 }
+        weak let weakSut = sut
+        let recorder = Recorder()
+
+        sut?.addEffect { (_: Int, _: Int) async throws -> Void in
+            await recorder.markStarted()
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            await recorder.markFinished()
+        }
+
+        sut?.dispatch(1)
+
+        // Effect is in flight.
+        let started = await waitUntil { await recorder.started == 1 }
+        #expect(started)
+
+        // Drop the only strong reference while the effect still runs.
+        sut = nil
+
+        // The in-flight effect completes without a crash...
+        let completed = await waitUntil { await recorder.finished == 1 }
+        #expect(completed)
+
+        // ...and the store deallocates (no retain cycle, weak task capture).
+        let deallocated = await waitUntil { weakSut == nil }
+        #expect(deallocated)
+    }
+}
+
+private extension StoreEffectActionTests {
+    //MARK: - Helpers
+    func makeSUT() -> Sut {
+        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
+    }
+}
+
+//MARK: - Shared test helpers
+
+/// Records (state, action) and lifecycle markers across async boundaries.
+private actor Recorder {
+    var states: [Int] = []
+    var actions: [Int] = []
+    var started = 0
+    var finished = 0
+    var sentinel = 0
+
+    func record(state: Int, action: Int) {
+        states.append(state)
+        actions.append(action)
+    }
+
+    func record(action: Int) {
+        actions.append(action)
+    }
+
+    func markStarted() { started += 1 }
+    func markFinished() { finished += 1 }
+    func markSentinel() { sentinel += 1 }
+}
+
+/// Thread-safe buffer of states observed by a subscriber.
+private actor StateBuffer {
+    var values: [Int] = []
+
+    func append(_ value: Int) {
+        values.append(value)
+    }
+}
+
+/// Thread-safe collector usable from synchronous permission gates.
+private final class LockedTap: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [Int] = []
+
+    func record(_ value: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        _values.append(value)
+    }
+
+    var values: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _values
+    }
+}
+
+/// Polls `condition` until it returns true or the deadline expires.
+func waitUntil(
+    timeoutNanoseconds: UInt64 = 2_000_000_000,
+    _ condition: () async -> Bool
+) async -> Bool {
+    let start = DispatchTime.now().uptimeNanoseconds
+    let deadline = start + timeoutNanoseconds
+    while DispatchTime.now().uptimeNanoseconds < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+    return await condition()
+}

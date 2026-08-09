@@ -113,8 +113,23 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
     /// action pipeline before reduction.
     public typealias Middleware = @Sendable (S, A) -> [A]
 
-    /// An async effect triggered after each action is reduced. Effects run concurrently
-    /// in a `TaskGroup` and do not block the reducer.
+    /// An async effect triggered after each action is reduced and the state has been
+    /// updated. Effects run concurrently in a `TaskGroup` and do not block the
+    /// reducer.
+    ///
+    /// Effects come in two flavors, selected by the overload of ``addEffect(_:)``:
+    /// - `Effect<Void>` performs side work (logging, analytics, I/O) and produces
+    ///   no follow-up action.
+    /// - `Effect<Action>` returns a follow-up action that the store re-dispatches
+    ///   through the full pipeline: permissions, middleware, and the reducer.
+    ///
+    /// - Important: Errors thrown by an effect are ignored by the runtime; a
+    ///   throwing effect simply produces no follow-up action.
+    ///
+    /// - Warning: When the store's `Action` type is `Void`, both ``addEffect(_:)``
+    ///   overloads share the same signature, making calls to `addEffect`
+    ///   ambiguous. Prefer a non-`Void` action type for stores that register
+    ///   effects.
     public typealias Effect<T> = @Sendable (S, A) async throws -> T
 
     /// A type alias for the reducer function that handles actions and mutates the store's state.
@@ -349,6 +364,16 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             .reduce(into: [action], +=)
     }
 
+    /// Runs every registered effect for the given action and re-dispatches the
+    /// results of action effects.
+    ///
+    /// Both effect registries are snapshotted under lock when the task group
+    /// starts, so effects removed mid-run still execute for this dispatch. The
+    /// group keeps running until every registered effect — including slow void
+    /// effects — completes; meanwhile each action-effect result is re-dispatched
+    /// individually, in completion order (nondeterministic across concurrent
+    /// effects). Every such re-dispatch is a separate scheduler pass that
+    /// produces its own subscriber notification.
     func runEffects(state: State, action: Action) async {
         if voidEffects.withLock(\.isEmpty) && actionEffects.withLock(\.isEmpty) {
             return
@@ -478,12 +503,16 @@ public extension Store {
     /// Each middleware receives the current state and every dispatched action, and
     /// produces additional actions to process. All middleware results are appended
     /// to the action list, re-checked against permissions, and then reduced.
-    /// Middleware output is never re-routed through other middleware.
+    /// Middleware output is never re-routed through other middleware. The original
+    /// action always flows through the pipeline — middleware can add follow-up
+    /// actions but cannot suppress the action being processed.
     ///
     /// The closure body is built with the `ActionBuilder` result builder, so it can
     /// produce a single action, an array of actions, or compose the result with
-    /// `if` or `switch` statements. An explicit `return` statement and an empty
-    /// body are not allowed inside the builder.
+    /// `if` or `switch` statements. An explicit `return` statement is not allowed
+    /// inside the builder. An empty body and Void-valued statements (e.g. logging)
+    /// are allowed and contribute no actions; the original action still flows
+    /// through the pipeline.
     ///
     /// - Note: Because the builder is generic over the action type, implicit member
     ///   expressions like `.navigate(to: .home)` cannot be inferred inside the
@@ -558,6 +587,11 @@ public extension Store {
     /// updated. All active effects run concurrently in a `TaskGroup`, so they do
     /// not block the reducer or each other.
     ///
+    /// This overload registers a *void effect*: it performs side work (logging,
+    /// analytics, I/O, cache writes) and produces no follow-up action. To
+    /// re-dispatch an action with the result of an async operation, use the
+    /// action-returning overload instead.
+    ///
     /// - Parameter effect: An async closure that receives the updated state and the
     ///   action that caused the change.
     /// - Returns: A `UUID` that you can pass to ``removeEffect(withId:)`` to remove
@@ -582,6 +616,11 @@ public extension Store {
     /// - Important: Effects run concurrently and should not assume any ordering
     ///   between them.
     ///
+    /// - Note: Errors thrown by the effect are ignored, so a void effect that
+    ///   throws is indistinguishable from one that returns normally. To handle
+    ///   failures observably, dispatch the failure as an action instead of
+    ///   throwing.
+    ///
     /// ### See Also
     /// - ``removeEffect(withId:)``
     ///
@@ -592,6 +631,45 @@ public extension Store {
         return id
     }
 
+    /// Adds an async *action effect* to the store.
+    ///
+    /// An action effect runs after each action is reduced, exactly like a void
+    /// effect, but it returns a follow-up action that the store re-dispatches
+    /// through the full pipeline — permissions, middleware, and the reducer —
+    /// producing its own state update and subscriber notification.
+    ///
+    /// - Parameter effect: An async closure that receives the updated state and
+    ///   the action that caused the change, and returns the follow-up action to
+    ///   dispatch.
+    /// - Returns: A `UUID` that you can pass to ``removeEffect(withId:)`` to remove
+    ///   this effect later.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let id = store.addEffect { _, action in
+    ///     guard case .fetchData = action else { return .noOp }
+    ///     let payload = try await api.fetchData()
+    ///     return .dataLoaded(payload)
+    /// }
+    ///
+    /// // Later, remove the effect
+    /// store.removeEffect(withId: id)
+    /// ```
+    ///
+    /// ## Thread Safety
+    /// This method is thread-safe and can be called from any thread.
+    ///
+    /// - Important: The follow-up action is dispatched as a separate pipeline pass
+    ///   and may in turn trigger its own effects.
+    ///
+    /// - Note: If the effect throws, the error is ignored and no follow-up action
+    ///   is dispatched. To surface failures to the state, return a failure action
+    ///   (for example `.loadFailed(error)`) instead of throwing.
+    ///
+    /// ### See Also
+    /// - ``removeEffect(withId:)``
+    ///
     @discardableResult
     func addEffect(_ effect: @escaping Effect<A>) -> UUID {
         let id = UUID()
@@ -603,11 +681,16 @@ public extension Store {
     ///
     /// - Parameter id: The `UUID` returned when the effect was added via
     ///   ``addEffect(_:)``.
-    /// - Returns: The removed `Effect` closure, or `nil` if no effect was
-    ///   registered under the given identifier.
+    /// - Returns: `true` if a registered effect with the given identifier
+    ///   existed and was removed; `false` otherwise.
     ///
     /// ## Thread Safety
     /// This method is thread-safe and can be called from any thread.
+    ///
+    /// - Important: Removal unregisters the effect for future dispatches only.
+    ///   It does not cancel an effect that is already running — each dispatch
+    ///   snapshots the registered effects when it starts, so an in-flight effect
+    ///   keeps running to completion after it has been removed.
     ///
     /// ### See Also
     /// - ``addEffect(_:)``
@@ -934,8 +1017,8 @@ public extension Store {
     ///
     @inlinable
     @Sendable
-    func dispatch(contentsOf s: some Sequence<A>) {
-        dispatcher(Array(s))
+    func dispatch(contentsOf sequence: some Sequence<A>) {
+        dispatcher(Array(sequence))
     }
 }
 

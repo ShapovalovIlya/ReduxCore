@@ -142,6 +142,67 @@ struct StoreMiddlewareTests {
         // middleware.
         #expect(sut.state == 2)
     }
+    
+    @Test func testMiddlewareEmptyBodyContributesNothing() async throws {
+        let sut = makeSUT()
+        
+        sut.addMiddleware { _, _ in }
+        
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+        
+        // The empty body produces no middleware actions; the original
+        // action still flows through the pipeline and is reduced once.
+        #expect(sut.state == 1)
+    }
+    
+    @Test func testMiddlewareVoidStatementContributesNothing() async throws {
+        let sut = makeSUT()
+        
+        sut.addMiddleware { _, _ in logDebug("middleware ran") }
+        
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+        
+        // A Void-valued statement (e.g. logging) contributes no actions;
+        // the original action still flows through the pipeline.
+        #expect(sut.state == 1)
+    }
+    
+    @Test func testMiddlewareMixedScalarAndArrayConcatenation() async throws {
+        let sut = makeSUT()
+        
+        sut.addMiddleware { _, _ in
+            1
+            [2, 3]
+        }
+        
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+        
+        // Middleware produces [1, 2, 3] in flatMap source order, plus the
+        // original action 1: 0 + 1 + 1 + 2 + 3 = 7.
+        #expect(sut.state == 7)
+    }
+    
+    @Test func testMiddlewareBranchesWithTrailingScalar() async throws {
+        let sut = makeSUT()
+        
+        sut.addMiddleware { _, action in
+            if action == 1 { [2] } else { [3] }
+            4
+        }
+        
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+        // Original 1 + branch [2] + trailing 4 = 7.
+        #expect(sut.state == 7)
+        
+        sut.dispatch(2)
+        await sut.scheduler.flush()
+        // State 7 + original 2 + branch [3] + trailing 4 = 16.
+        #expect(sut.state == 16)
+    }
 }
 
 private extension StoreMiddlewareTests {
@@ -149,4 +210,8 @@ private extension StoreMiddlewareTests {
     func makeSUT() -> Sut {
         Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
     }
+    
+    // A Void-valued helper used to prove Void statements are allowed in the
+    // ActionBuilder body.
+    func logDebug(_ message: String) { }
 }
