@@ -15,19 +15,23 @@ Add the package to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ShapovalovIlya/ReduxCore.git", branch: "main")
+    .package(url: "https://github.com/ShapovalovIlya/ReduxCore.git", from: "2.4.1")
 ]
 ```
 
+> **Note:** Latest stable: `2.4.1`. For the latest changes, you can opt into `branch: "main"` explicitly.
+
 Or via Xcode: **File > Add Package Dependencies...**
+
+**Requirements:** iOS 13+, macOS 10.15+.
 
 The package provides four library products:
 
 | Product | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `ReduxCore` | Main store, snapshot, and scheduler APIs |
 | `ReduxStream` | `StateStreamer` for async state broadcasting |
-| `ReduxSync` | Thread-safety primitives (`OSUnfairLock`, `@Synchronised`) |
+| `ReduxSync` | Thread-safety primitives (`OSUnfairLock`, `OSReadWriteLock`, `@Synchronised`) |
 | `ReducerDomain` | Composable reducer protocol and `@ReducerCombine` builder |
 
 ## Quick Start
@@ -58,8 +62,10 @@ store.dispatch(.increment)
 store.dispatch(contentsOf: [.increment, .decrement])
 
 // 5. Read state — @dynamicMemberLookup lets you skip `.state`
-print(store.count) // 0
+print(store.count) // 1  (0 → 1 → 2 → 1)
 ```
+
+> **Note:** Dispatch is asynchronous by default. In real code, observe state reactively (snapshots, drivers, or streams below) instead of reading it immediately after `dispatch`.
 
 ## Observing State
 
@@ -119,9 +125,11 @@ snapshot.dispatch(.increment, .decrement) // Multiple actions
 
 ## Composable Reducers
 
-`ReducerDomain` + `@ReducerCombine` let you build modular, hierarchical reducer logic:
+`ReducerDomain` + `@ReducerCombine` let you build modular, hierarchical reducer logic. `ReducerDomain` is a separate library product — add it to your dependencies alongside `ReduxCore`:
 
 ```swift
+import ReducerDomain
+
 struct CounterFeature: ReducerDomain {
     struct State { var count: Int = 0 }
     enum Action { case increment, decrement }
@@ -132,41 +140,39 @@ struct CounterFeature: ReducerDomain {
             case .increment:  state.count += 1
             case .decrement:  state.count -= 1
             }
+            return nil
         }
     }
 }
 ```
 
-Multiple reducers compose with the `@ReducerCombine` result builder — later reducers handle actions first, falling back to earlier ones.
+Multiple reducers compose with the `@ReducerCombine` result builder — reducers are tried in declaration order: earlier reducers get the first chance to handle an action, and later ones act as a fallback for actions the earlier reducers return `nil` for.
 
 ## Thread Safety
 
-All state access is protected by `OSUnfairLock`. Action dispatch is serialized through a `ReduxScheduler` (default: a serial `DispatchQueue` at `.userInteractive` QoS). Custom schedulers can be injected for testing:
+All state access is protected by `OSUnfairLock`. Action dispatch is serialized through a `ReduxScheduler` — by default `AsyncSerialScheduler`, a serial Swift Concurrency task loop that never blocks a thread. `DispatchQueue.storeScheduler` (serial, `.userInteractive` QoS) is available for GCD-based setups. Custom schedulers can be injected for testing:
 
 ```swift
-let testScheduler: any ReduxScheduler = MySynchronousScheduler()
-let store = Store(initial: state, scheduler: testScheduler, reducer: reducer)
+let store = Store(
+    initial: state,
+    scheduler: DispatchQueue.storeScheduler, // or a custom ReduxScheduler for tests
+    reducer: reducer
+)
 ```
 
 ## StateStreamer
 
-`StateStreamer<State>` is a standalone, async, thread-safe broadcaster for any state type. It wraps `AsyncStream` with automatic completion on deinitialization:
+`StateStreamer<State>` (from the `ReduxStream` product) is a standalone, thread-safe broadcaster for any state type. It wraps `AsyncStream` with automatic completion on deinitialization:
 
 ```swift
 let streamer = StateStreamer<MyState>()
 
-// Consume
 Task {
-    for await state in streamer {
-        print("Received: \(state)")
-    }
+    for await state in streamer { print("Received: \(state)") }
 }
 
-// Emit
-streamer.yield(newState)
-
-// Complete
-streamer.finish()
+streamer.yield(newState)   // Emit
+streamer.finish()          // Complete
 ```
 
 > **Note:** After `finish()` or deinitialization, no further values can be yielded.
