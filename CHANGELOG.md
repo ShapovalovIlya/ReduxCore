@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5]
+
+### Added
+
+- `ActionBuilder` for `addMiddleware(_:)` — a middleware body can now mix scalar actions, arrays of actions, Void-valued statements (e.g. logging) and `if`/`else` or `switch` branches; an empty body is allowed and contributes no actions
+- Async action effects: `addEffect(_:)` with an `Effect<Action>` runs after each reduction and re-dispatches a follow-up action through the full pipeline — permissions, middleware, and the reducer — producing its own state update and notification; the void-effect flavor `Effect<Void>` remains for side work (logging, analytics, I/O)
+- `Effect` closures may `throw`; errors are ignored by the runtime, so dispatch the failure as an action to observe it
+
+### Changed
+
+- **Breaking:** `Effect` typealias is now generic (`Effect<T>`) and may throw — previously a non-generic `(S, A) async -> Void`
+- **Breaking:** `removeEffect(withId:)` now returns `Bool` — previously returned the removed `Effect` closure or `nil`
+- **Breaking:** `addMiddleware(_:)` now uses a result builder: an explicit `return` statement inside the closure body no longer compiles; write the actions as the implicit result instead
+- **Breaking:** `addEffect(_:)` now has two overloads — `Effect<Void>` and `Effect<Action>`
+- **Breaking:** the `Store.Hook<T>` typealias was removed (the hooks API was already removed before 2.4.1; the orphaned typealias is gone)
+- Expanded effect and middleware test coverage (14 new tests: 10 action-effect + 4 middleware builder); doc fixes for effects and middleware
+
 ## [2.4.1]
 
 ### Changed

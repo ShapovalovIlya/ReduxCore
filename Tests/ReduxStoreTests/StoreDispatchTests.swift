@@ -94,5 +94,3 @@ private extension StoreDispatchTests {
     }
 }
 
-//MARK: - String: Action conformance for addHook tests
-extension String: @retroactive Action {}

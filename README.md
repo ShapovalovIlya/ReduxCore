@@ -15,11 +15,11 @@ Add the package to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ShapovalovIlya/ReduxCore.git", from: "2.4.1")
+    .package(url: "https://github.com/ShapovalovIlya/ReduxCore.git", from: "2.5")
 ]
 ```
 
-> **Note:** Latest stable: `2.4.1`. For the latest changes, you can opt into `branch: "main"` explicitly.
+> **Note:** Latest stable: `2.5`. For the latest changes, you can opt into `branch: "main"` explicitly.
 
 Or via Xcode: **File > Add Package Dependencies...**
 
