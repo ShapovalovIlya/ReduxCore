@@ -102,18 +102,20 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
 
     //MARK: - Aliases
     public typealias Snapshot = StoreSnapshot<Store>
-    public typealias Hook<T> = AsyncStream<(state: S, action: T)>
+
     /// A permission gate is a predicate that determines whether an action is allowed
     /// to reach the reducer. All installed permission gates must return `true` for the
     /// action to proceed (AND logic).
     public typealias PermissionGate = @Sendable (S, A) -> Bool
+
     /// A middleware function that intercepts each dispatched action and returns a list
     /// of additional actions to process. All middleware results are flat-mapped into the
     /// action pipeline before reduction.
     public typealias Middleware = @Sendable (S, A) -> [A]
+
     /// An async effect triggered after each action is reduced. Effects run concurrently
     /// in a `TaskGroup` and do not block the reducer.
-    public typealias Effect = @Sendable (S, A) async -> Void
+    public typealias Effect<T> = @Sendable (S, A) async throws -> T
 
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
@@ -267,7 +269,8 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
 
     private var permissions = OSUnfairLock<[UUID: PermissionGate]>(initial: [:])
     private var middleware = OSUnfairLock<[UUID: Middleware]>(initial: [:])
-    private var effects = OSUnfairLock<[UUID: Effect]>(initial: [:])
+    private var actionEffects = OSUnfairLock<[UUID: Effect<A>]>(initial: [:])
+    private var voidEffects = OSUnfairLock<[UUID: Effect<Void>]>(initial: [:])
 
     //MARK: - init(_:)
     
@@ -347,15 +350,32 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
     }
 
     func runEffects(state: State, action: Action) async {
-        if effects.withLock(\.isEmpty) {
+        if voidEffects.withLock(\.isEmpty) && actionEffects.withLock(\.isEmpty) {
             return
         }
-        await withTaskGroup { group in
-            effects.withLock(\.values).forEach { effect in
-                group.addTask {
-                    await effect(state,action)
+        await withTaskGroup(of: Optional<A>.self) { [weak self] group in
+            self?.voidEffects
+                .withLock(\.values)
+                .forEach { effect in
+                    group.addTask {
+                        try? await effect(state, action)
+                        return nil
+                    }
                 }
-            }
+
+            self?.actionEffects
+                .withLock(\.values)
+                .forEach { effect in
+                    group.addTask {
+                        try? await effect(state, action)
+                    }
+                }
+
+            await group
+                .compactMap(\.self)
+                .forEach { action in
+                    self?.dispatch(action)
+                }
         }
     }
 
@@ -373,11 +393,12 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             let updated = pending.lazy
                 .filter { self.runPermissions(state: current, action: $0) }
                 .flatMap { self.runMiddleware(state: current, action: $0) }
+                .filter { self.runPermissions(state: current, action: $0) }
                 .reduce(into: current) { updated, action in
                     self.reducer(&updated, action)
 
-                    Task { [updated] in
-                        await self.runEffects(state: updated, action: action)
+                    Task { [weak self, updated] in
+                        await self?.runEffects(state: updated, action: action)
                     }
                 }
 
@@ -455,25 +476,46 @@ public extension Store {
     /// Adds a middleware function to the store's action dispatch pipeline.
     ///
     /// Each middleware receives the current state and every dispatched action, and
-    /// returns an array of additional actions. All middleware results are flat-mapped
-    /// and appended to the original action list before the reducer processes them.
+    /// produces additional actions to process. All middleware results are appended
+    /// to the action list, re-checked against permissions, and then reduced.
+    /// Middleware output is never re-routed through other middleware.
+    ///
+    /// The closure body is built with the `ActionBuilder` result builder, so it can
+    /// produce a single action, an array of actions, or compose the result with
+    /// `if` or `switch` statements. An explicit `return` statement and an empty
+    /// body are not allowed inside the builder.
+    ///
+    /// - Note: Because the builder is generic over the action type, implicit member
+    ///   expressions like `.navigate(to: .home)` cannot be inferred inside the
+    ///   body. Use fully qualified cases (`AppAction.navigate(to: .home)`) or bind
+    ///   the value first via `let` with an explicit type.
     ///
     /// - Parameter middleware: A closure that receives the current state and an
-    ///   action, returning an array of additional actions to enqueue.
+    ///   action, producing additional actions to enqueue.
     /// - Returns: A `UUID` that you can pass to ``removeMiddleware(withId:)`` to
     ///   remove this middleware later.
     ///
     /// ## Usage
     ///
     /// ```swift
-    /// let id = store.addMiddleware { state, action in
+    /// let id = store.addMiddleware { _, action in
     ///     if case .loginSuccess = action {
-    ///         return [.navigate(to: .home)]
+    ///         AppAction.navigate(to: .home)
     ///     }
-    ///     return []
     /// }
     ///
-    /// // Later, remove the middleware
+    /// store.addMiddleware { _, action in
+    ///     switch action {
+    ///     case .loginSuccess:
+    ///         [AppAction.navigate(to: .home), AppAction.trackEvent("login")]
+    ///     case .loginFailure:
+    ///         AppAction.showAlert("login.failed")
+    ///     default:
+    ///         AppAction.trackEvent("login_failed")
+    ///     }
+    /// }
+    ///
+    /// // Later, remove a middleware
     /// store.removeMiddleware(withId: id)
     /// ```
     ///
@@ -484,7 +526,9 @@ public extension Store {
     /// - ``removeMiddleware(withId:)``
     ///
     @discardableResult
-    func addMiddleware(_ middleware: @escaping Middleware) -> UUID {
+    func addMiddleware(
+        @ActionBuilder _ middleware: @escaping Middleware
+    ) -> UUID {
         let id = UUID()
         self.middleware.withLock { $0[id] = middleware }
         return id
@@ -505,7 +549,7 @@ public extension Store {
     ///
     @discardableResult
     func removeMiddleware(withId id: UUID) -> Middleware? {
-        self.middleware.withLock { $0.removeValue(forKey: id) }
+        middleware.withLock { $0.removeValue(forKey: id) }
     }
 
     /// Adds an async effect to the store.
@@ -542,9 +586,16 @@ public extension Store {
     /// - ``removeEffect(withId:)``
     ///
     @discardableResult
-    func addEffect(_ effect: @escaping Effect) -> UUID {
+    func addEffect(_ effect: @escaping Effect<Void>) -> UUID {
         let id = UUID()
-        self.effects.withLock { $0[id] = effect }
+        voidEffects.withLock { $0[id] = effect }
+        return id
+    }
+
+    @discardableResult
+    func addEffect(_ effect: @escaping Effect<A>) -> UUID {
+        let id = UUID()
+        actionEffects.withLock { $0[id] = effect }
         return id
     }
 
@@ -562,8 +613,9 @@ public extension Store {
     /// - ``addEffect(_:)``
     ///
     @discardableResult
-    func removeEffect(withId id: UUID) -> Effect? {
-        self.effects.withLock { $0.removeValue(forKey: id) }
+    func removeEffect(withId id: UUID) -> Bool {
+        voidEffects.withLock { $0.removeValue(forKey: id) } != nil
+        || actionEffects.withLock { $0.removeValue(forKey: id) } != nil
     }
 
     /// Creates an `AsyncStream` that emits state updates from the store.

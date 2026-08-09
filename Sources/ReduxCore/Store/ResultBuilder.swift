@@ -34,4 +34,38 @@ public extension Store {
             components.flatMap { $0 }
         }
     }
+
+    @resultBuilder
+    enum ActionBuilder {
+
+        @inlinable
+        public static func buildBlock(_ components: A...) -> [A] {
+            components
+        }
+
+        @inlinable
+        public static func buildArray(_ components: [[A]]) -> [A] {
+            components.flatMap(\.self)
+        }
+
+        @inlinable
+        public static func buildBlock(_ components: [A]...) -> [A] {
+            buildArray(components)
+        }
+
+        @inlinable
+        public static func buildOptional(_ component: [A]?) -> [A] {
+            component ?? []
+        }
+
+        @inlinable
+        public static func buildEither(first component: [A]) -> [A] {
+            component
+        }
+
+        @inlinable
+        public static func buildEither(second component: [A]) -> [A] {
+            component
+        }
+    }
 }

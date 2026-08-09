@@ -52,7 +52,24 @@ let package = Package(
                 .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
-        .testTarget(name: "ReduxCoreTests", dependencies: ["ReduxCore"]),
+        .testTarget(
+            name: "ReduxCoreTests",
+            dependencies: [
+                "ReduxStream",
+                "ReduxSync",
+                "SequenceFX",
+                "CoWBox",
+                "ReducerDomain",
+            ]
+        ),
+        .testTarget(
+            name: "ReduxStoreTests",
+            dependencies: [
+                "ReduxCore",
+                "ReduxStream",
+                "StoreThread",
+            ]
+        ),
     ]
 //,
 //    swiftLanguageVersions: [
