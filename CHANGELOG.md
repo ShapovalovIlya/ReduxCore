@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** `addMiddleware(_:)` now uses a result builder: an explicit `return` statement inside the closure body no longer compiles; write the actions as the implicit result instead
 - **Breaking:** `addEffect(_:)` now has two overloads — `Effect<Void>` and `Effect<Action>`
 - **Breaking:** the `Store.Hook<T>` typealias was removed (the hooks API was already removed before 2.4.1; the orphaned typealias is gone)
-- Expanded effect and middleware test coverage (14 new tests: 10 action-effect + 4 middleware builder); doc fixes for effects and middleware
+- Doc fixes for effects and middleware
 
 ## [2.4.1]
 
