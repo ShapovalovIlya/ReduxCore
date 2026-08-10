@@ -10,9 +10,9 @@ import Testing
 import ReduxCore
 import ReduxStream
 
-/// Coverage for `Effect<A>` (action effects): re-dispatch of the returned
-/// follow-up action through the full pipeline, chaining, completion-order
-/// batching, removeEffect semantics, and store lifetime.
+/// Coverage for effect follow-up actions re-dispatched through the full
+/// pipeline via the `ReduxEffect` run callback: chaining, per-dispatch
+/// subscriber notifications, removeEffect semantics, and store lifetime.
 struct StoreEffectActionTests {
     typealias Sut = Store<Int, Int>
 
@@ -22,21 +22,21 @@ struct StoreEffectActionTests {
         let sut = makeSUT()
         let recorder = Recorder()
 
-        sut.addEffect { (state: Int, action: Int) async throws -> Int in
+        sut.addEffect { (state: Int, action: Int, send: (Int) -> Void) in
             await recorder.record(state: state, action: action)
-            guard action == 1 else { throw CancellationError() }
-            return 10
+            guard action == 1 else { return }
+            send(10)
         }
 
         sut.dispatch(1)
 
-        // dispatch(1) reduces to 1; the effect returns 10 which is
-        // re-dispatched and reduces to 11.
+        // dispatch(1) reduces to 1; the effect re-dispatches 10 via the
+        // callback, which reduces to 11.
         let reached = await waitUntil { sut.state == 11 }
         #expect(reached)
         #expect(sut.state == 11)
 
-        // The effect receives the updated state and runs for every
+        // The effect receives the snapshot state and runs for every
         // reduced action (including the follow-up it produced).
         let states = await recorder.states
         let actions = await recorder.actions
@@ -56,9 +56,9 @@ struct StoreEffectActionTests {
             }
         }
 
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
-            return 10
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
+            send(10)
         }
 
         sut.dispatch(1)
@@ -79,9 +79,9 @@ struct StoreEffectActionTests {
         sut.addMiddleware { _, action in
             if action == 10 { 100 }
         }
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
-            return 10
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
+            send(10)
         }
 
         sut.dispatch(1)
@@ -102,9 +102,9 @@ struct StoreEffectActionTests {
             tap.record(action)
             return action != 10
         }
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
-            return 10
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
+            send(10)
         }
 
         sut.dispatch(1)
@@ -116,21 +116,20 @@ struct StoreEffectActionTests {
         #expect(sut.state == 1)
     }
 
-    @Test func testThrowingActionEffectDispatchesNoFollowUp() async throws {
+    @Test func testEffectWithoutCallbackDispatchesNoFollowUp() async throws {
         let sut = makeSUT()
         let recorder = Recorder()
 
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
+        sut.addEffect { (_: Int, action: Int, _: (Int) -> Void) in
             await recorder.record(action: action)
-            guard action == 1 else { throw CancellationError() }
-            throw CancellationError()
         }
 
         sut.dispatch(1)
 
         let effectRan = await waitUntil { await recorder.actions == [1] }
         #expect(effectRan)
-        // A thrown effect produces no follow-up: state stays 1.
+        // An effect that never invokes the callback produces no follow-up:
+        // state stays 1.
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(sut.state == 1)
         // The effect is never re-invoked for a follow-up that never arrives.
@@ -143,18 +142,18 @@ struct StoreEffectActionTests {
         let sut = makeSUT()
 
         // Effect A: 1 → 2. Effect B: 2 → 3. Re-dispatch chains both hops.
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
-            return 2
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
+            send(2)
         }
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 2 else { throw CancellationError() }
-            return 3
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 2 else { return }
+            send(3)
         }
 
         sut.dispatch(1)
 
-        // Chain terminates: effects throw for non-matching actions, so
+        // Chain terminates: effects ignore non-matching actions, so
         // no infinite loop. Final state = 1 + 2 + 3 = 6.
         let settled = await waitUntil { sut.state == 6 }
         #expect(settled)
@@ -164,7 +163,7 @@ struct StoreEffectActionTests {
         #expect(sut.state == 6)
     }
 
-    //MARK: - Completion-order dispatch of multiple action effects
+    //MARK: - Per-dispatch notifications for multiple action effects
 
     @Test func testMultipleActionEffectsDispatchSeparately() async throws {
         let sut = makeSUT()
@@ -178,23 +177,23 @@ struct StoreEffectActionTests {
             }
         }
 
-        // Three effects with staggered delays so they complete in a
-        // (likely) observable order. Exact completion order is not
+        // Three effects with staggered delays. Each callback invocation is
+        // its own dispatch; exact ordering of the follow-ups is not
         // asserted — only the deterministic guarantees below.
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
             try? await Task.sleep(nanoseconds: 30_000_000)
-            return 10
+            send(10)
         }
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
             try? await Task.sleep(nanoseconds: 20_000_000)
-            return 20
+            send(20)
         }
-        sut.addEffect { (_: Int, action: Int) async throws -> Int in
-            guard action == 1 else { throw CancellationError() }
+        sut.addEffect { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
-            return 30
+            send(30)
         }
 
         sut.dispatch(1)
@@ -226,7 +225,7 @@ struct StoreEffectActionTests {
         let sut = makeSUT()
         let recorder = Recorder()
 
-        let id = sut.addEffect { (_: Int, _: Int) async throws -> Void in
+        let id = sut.addEffect { (_: Int, _: Int, _: (Int) -> Void) in
             await recorder.markStarted()
             try? await Task.sleep(nanoseconds: 100_000_000)
             await recorder.markFinished()
@@ -240,7 +239,7 @@ struct StoreEffectActionTests {
 
         // Removal mid-flight does not cancel the running task.
         let removed = sut.removeEffect(withId: id)
-        #expect(removed == true)
+        #expect(removed?.id == id)
 
         let finished = await waitUntil { await recorder.finished == 1 }
         #expect(finished)
@@ -248,7 +247,7 @@ struct StoreEffectActionTests {
 
         // A sentinel still-registered effect proves dispatch(2) was
         // processed; the removed effect must not run for it.
-        sut.addEffect { (_: Int, action: Int) async throws -> Void in
+        sut.addEffect { (_: Int, action: Int, _: (Int) -> Void) in
             if action == 2 { await recorder.markSentinel() }
         }
         sut.dispatch(2)
@@ -259,21 +258,13 @@ struct StoreEffectActionTests {
         #expect(await recorder.finished == 1)
     }
 
-    @Test func testRemoveEffectReturnsBool() {
+    @Test func testRemoveEffectReturnsRemovedEffect() {
         let sut = makeSUT()
 
-        let voidID = sut.addEffect { (_: Int, _: Int) async throws -> Void in
-            ()
-        }
-        let actionID = sut.addEffect { (_: Int, _: Int) async throws -> Int in
-            1
-        }
-
-        #expect(sut.removeEffect(withId: voidID) == true)
-        #expect(sut.removeEffect(withId: voidID) == false)
-        #expect(sut.removeEffect(withId: actionID) == true)
-        #expect(sut.removeEffect(withId: actionID) == false)
-        #expect(sut.removeEffect(withId: UUID()) == false)
+        let id = sut.addEffect(ReduxEffect { _, _, _ in () })
+        #expect(sut.removeEffect(withId: id)?.id == id)
+        #expect(sut.removeEffect(withId: id) == nil)
+        #expect(sut.removeEffect(withId: UUID()) == nil)
     }
 
     //MARK: - Store lifetime
@@ -286,7 +277,7 @@ struct StoreEffectActionTests {
         weak let weakSut = sut
         let recorder = Recorder()
 
-        sut?.addEffect { (_: Int, _: Int) async throws -> Void in
+        sut?.addEffect { (_: Int, _: Int, _: (Int) -> Void) in
             await recorder.markStarted()
             try? await Task.sleep(nanoseconds: 200_000_000)
             await recorder.markFinished()

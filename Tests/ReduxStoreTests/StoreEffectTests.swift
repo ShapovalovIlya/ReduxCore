@@ -24,7 +24,7 @@ struct StoreEffectTests {
         }
         let recorder = Recorder()
         
-        sut.addEffect { state, action in
+        sut.addEffect { state, action, _ in
             await recorder.record(state, action)
         }
         
@@ -47,10 +47,10 @@ struct StoreEffectTests {
         }
         let recorder = Recorder()
         
-        sut.addEffect { _, _ in
+        sut.addEffect { _,_,_ in
             await recorder.increment()
         }
-        sut.addEffect { _, _ in
+        sut.addEffect { _,_,_ in
             await recorder.increment()
         }
         
@@ -70,11 +70,13 @@ struct StoreEffectTests {
         }
         let recorder = Recorder()
         
-        let id = sut.addEffect { _, _ in
+        let id = sut.addEffect { _,_,_ in
             await recorder.increment()
         }
         
-        sut.removeEffect(withId: id)
+        // Removal returns the registered effect.
+        let removed = sut.removeEffect(withId: id)
+        #expect(removed?.id == id)
         
         sut.dispatch(1)
         await sut.scheduler.flush()

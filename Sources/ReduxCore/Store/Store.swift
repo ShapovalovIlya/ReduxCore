@@ -10,6 +10,39 @@ import ReduxStream
 import StoreThread
 import ReduxSync
 
+public struct ReduxEffect<S,A>: Sendable {
+    public enum Policy: Sendable {
+        /// конкурентно, без ожидания и без отмены
+        case merge
+
+        /// очередь: ждать предыдущий, потом стартовать
+        case concat
+
+        /// отменить предыдущий, стартовать новый
+        case switchToLatest
+
+        /// игнорировать новый, пока предыдущий не завершился/
+        case dropWhileActive
+    }
+
+    public let id: UUID
+    public let priority: TaskPriority?
+    public let policy: Policy
+    public let run: @Sendable (S, A, (A) -> Void) async -> Void
+
+    public init(
+        id: UUID = UUID(),
+        priority: TaskPriority? = nil,
+        policy: Policy = .merge,
+        run: @escaping @Sendable (S, A, (A) -> Void) async -> Void
+    ) {
+        self.id = id
+        self.priority = priority
+        self.policy = policy
+        self.run = run
+    }
+}
+
 /// A thread-safe, observable state container for managing application state and dispatching actions.
 ///
 /// The `Store` class is a generic, thread-safe container that serves as the central point for state management in your application.
@@ -112,25 +145,6 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
     /// of additional actions to process. All middleware results are flat-mapped into the
     /// action pipeline before reduction.
     public typealias Middleware = @Sendable (S, A) -> [A]
-
-    /// An async effect triggered after each action is reduced and the state has been
-    /// updated. Effects run concurrently in a `TaskGroup` and do not block the
-    /// reducer.
-    ///
-    /// Effects come in two flavors, selected by the overload of ``addEffect(_:)``:
-    /// - `Effect<Void>` performs side work (logging, analytics, I/O) and produces
-    ///   no follow-up action.
-    /// - `Effect<Action>` returns a follow-up action that the store re-dispatches
-    ///   through the full pipeline: permissions, middleware, and the reducer.
-    ///
-    /// - Important: Errors thrown by an effect are ignored by the runtime; a
-    ///   throwing effect simply produces no follow-up action.
-    ///
-    /// - Warning: When the store's `Action` type is `Void`, both ``addEffect(_:)``
-    ///   overloads share the same signature, making calls to `addEffect`
-    ///   ambiguous. Prefer a non-`Void` action type for stores that register
-    ///   effects.
-    public typealias Effect<T> = @Sendable (S, A) async throws -> T
 
     /// A type alias for the reducer function that handles actions and mutates the store's state.
     ///
@@ -284,8 +298,8 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
 
     private var permissions = OSUnfairLock<[UUID: PermissionGate]>(initial: [:])
     private var middleware = OSUnfairLock<[UUID: Middleware]>(initial: [:])
-    private var actionEffects = OSUnfairLock<[UUID: Effect<A>]>(initial: [:])
-    private var voidEffects = OSUnfairLock<[UUID: Effect<Void>]>(initial: [:])
+    private var effects = OSUnfairLock<[UUID: ReduxEffect<S,A>]>(initial: [:])
+    private var running = OSUnfairLock<[UUID: Task<Void, Never>]>(initial: [:])
 
     //MARK: - init(_:)
     
@@ -374,34 +388,38 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
     /// individually, in completion order (nondeterministic across concurrent
     /// effects). Every such re-dispatch is a separate scheduler pass that
     /// produces its own subscriber notification.
-    func runEffects(state: State, action: Action) async {
-        if voidEffects.withLock(\.isEmpty) && actionEffects.withLock(\.isEmpty) {
+    func runEffects(state: State, action: Action) {
+        if effects.withLock(\.isEmpty) {
             return
         }
-        await withTaskGroup(of: Optional<A>.self) { [weak self] group in
-            self?.voidEffects
-                .withLock(\.values)
-                .forEach { effect in
-                    group.addTask {
-                        try? await effect(state, action)
-                        return nil
+        let updated = effects.withLock(\.values)
+            .reduce(into: running.withLock(\.self)) { tasks, effect in
+                let scheduling = tasks[effect.id]
+                tasks[effect.id] = Task(priority: effect.priority) { [weak self] in
+                    switch effect.policy {
+                    case .concat:
+                        if scheduling?.isCancelled == true {
+                            break
+                        }
+                        await scheduling?.value
+
+                    case .switchToLatest:
+                        scheduling?.cancel()
+
+                    case .dropWhileActive:
+                        // TO DO: доработать
+                        break
+
+                    case .merge:
+                        break
+                    }
+
+                    await effect.run(state, action) { action in
+                        self?.dispatch(action)
                     }
                 }
-
-            self?.actionEffects
-                .withLock(\.values)
-                .forEach { effect in
-                    group.addTask {
-                        try? await effect(state, action)
-                    }
-                }
-
-            await group
-                .compactMap(\.self)
-                .forEach { action in
-                    self?.dispatch(action)
-                }
-        }
+            }
+        running.withLock { $0 = updated }
     }
 
     @Sendable
@@ -414,6 +432,7 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             guard let self else { return }
 
             let current = _state.withLock(\.self)
+            let effects = effects.withLock(\.self)
 
             let updated = pending.lazy
                 .filter { self.runPermissions(state: current, action: $0) }
@@ -421,10 +440,7 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
                 .filter { self.runPermissions(state: current, action: $0) }
                 .reduce(into: current) { updated, action in
                     self.reducer(&updated, action)
-
-                    Task { [weak self, updated] in
-                        await self?.runEffects(state: updated, action: action)
-                    }
+                    self.runEffects(state: updated, action: action)
                 }
 
             _state.withLock { $0 = updated }
@@ -581,6 +597,12 @@ public extension Store {
         middleware.withLock { $0.removeValue(forKey: id) }
     }
 
+    @discardableResult
+    func addEffect(_ effect: ReduxEffect<S,A>) -> UUID {
+        effects.withLock { $0[effect.id] = effect }
+        return effect.id
+    }
+
     /// Adds an async effect to the store.
     ///
     /// Effects are triggered after each action is reduced and the state has been
@@ -625,56 +647,10 @@ public extension Store {
     /// - ``removeEffect(withId:)``
     ///
     @discardableResult
-    func addEffect(_ effect: @escaping Effect<Void>) -> UUID {
-        let id = UUID()
-        voidEffects.withLock { $0[id] = effect }
-        return id
-    }
-
-    /// Adds an async *action effect* to the store.
-    ///
-    /// An action effect runs after each action is reduced, exactly like a void
-    /// effect, but it returns a follow-up action that the store re-dispatches
-    /// through the full pipeline — permissions, middleware, and the reducer —
-    /// producing its own state update and subscriber notification.
-    ///
-    /// - Parameter effect: An async closure that receives the updated state and
-    ///   the action that caused the change, and returns the follow-up action to
-    ///   dispatch.
-    /// - Returns: A `UUID` that you can pass to ``removeEffect(withId:)`` to remove
-    ///   this effect later.
-    ///
-    /// ## Usage
-    ///
-    /// ```swift
-    /// let id = store.addEffect { _, action in
-    ///     guard case .fetchData = action else { return .noOp }
-    ///     let payload = try await api.fetchData()
-    ///     return .dataLoaded(payload)
-    /// }
-    ///
-    /// // Later, remove the effect
-    /// store.removeEffect(withId: id)
-    /// ```
-    ///
-    /// ## Thread Safety
-    /// This method is thread-safe and can be called from any thread.
-    ///
-    /// - Important: The follow-up action is dispatched as a separate pipeline pass
-    ///   and may in turn trigger its own effects.
-    ///
-    /// - Note: If the effect throws, the error is ignored and no follow-up action
-    ///   is dispatched. To surface failures to the state, return a failure action
-    ///   (for example `.loadFailed(error)`) instead of throwing.
-    ///
-    /// ### See Also
-    /// - ``removeEffect(withId:)``
-    ///
-    @discardableResult
-    func addEffect(_ effect: @escaping Effect<A>) -> UUID {
-        let id = UUID()
-        actionEffects.withLock { $0[id] = effect }
-        return id
+    func addEffect(
+        _ effect: @escaping @Sendable (S, A, (A) -> Void) async -> Void
+    ) -> UUID {
+        addEffect(ReduxEffect(run: effect))
     }
 
     /// Removes a previously installed effect by its identifier.
@@ -696,9 +672,9 @@ public extension Store {
     /// - ``addEffect(_:)``
     ///
     @discardableResult
-    func removeEffect(withId id: UUID) -> Bool {
-        voidEffects.withLock { $0.removeValue(forKey: id) } != nil
-        || actionEffects.withLock { $0.removeValue(forKey: id) } != nil
+    func removeEffect(withId id: UUID) -> ReduxEffect<S,A>? {
+        running.withLock { $0.removeValue(forKey: id) }?.cancel()
+        return effects.withLock { $0.removeValue(forKey: id) }
     }
 
     /// Creates an `AsyncStream` that emits state updates from the store.

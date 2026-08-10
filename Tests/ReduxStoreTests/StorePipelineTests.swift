@@ -25,7 +25,7 @@ struct StorePipelineTests {
         // Middleware adds extra action
         sut.addMiddleware { _, _ in [1] }
         // Effect records
-        sut.addEffect { _, _ in
+        sut.addEffect { _, _, _ in
             await recorder.increment()
         }
         
