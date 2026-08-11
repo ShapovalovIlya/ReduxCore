@@ -13,7 +13,6 @@ import ReduxCore
 /// `switchToLatest`), per-reduced-action state snapshots, id-based
 /// registration, and task-priority propagation.
 struct StoreEffectPolicyTests {
-    typealias Sut = Store<Int, Int>
 
     //MARK: - Policies
 
@@ -170,67 +169,91 @@ struct StoreEffectPolicyTests {
         // was never scheduled below the requested priority.
         #expect(priority == nil || priority! >= TaskPriority.high)
     }
-}
 
-private extension StoreEffectPolicyTests {
-    func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
+    @Test func testConcatPolicySerializesSeparateDispatches() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
+        let gate = Gate()
+
+        sut.addEffect(ReduxEffect(policy: .concat) { _, action, _ in
+            await recorder.markStarted(action)
+            await gate.wait()
+            await recorder.markFinished(action)
+        })
+
+        sut.dispatch(1)
+        let firstStarted = await waitUntil { await recorder.started(for: 1) == 1 }
+        #expect(firstStarted)
+
+        // The second dispatch's invocation waits for the first: nothing
+        // starts while the gate is still closed.
+        sut.dispatch(2)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(await recorder.started(for: 2) == 0)
+
+        await gate.open()
+        let bothDone = await waitUntil { await recorder.finished == 2 }
+        #expect(bothDone)
+        #expect(await recorder.started(for: 1) == 1)
+        #expect(await recorder.started(for: 2) == 1)
     }
-}
 
-//MARK: - Helpers
+    @Test func testSwitchToLatestCancelsPreviousWithinBatch() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
 
-/// Suspends tasks that call `wait()` until `open()` resumes them.
-private actor Gate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+        sut.addEffect(ReduxEffect(policy: .switchToLatest) { _, action, _ in
+            await recorder.markStarted(action)
+            try? await Task.sleep(for: .milliseconds(100))
+            await recorder.markFinished(action, wasCancelled: Task.isCancelled)
+        })
 
-    func wait() async {
-        if isOpen { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+        sut.dispatch(contentsOf: [1, 2])
+
+        let settled = await waitUntil { await recorder.finished == 2 }
+        #expect(settled)
+
+        // The second action in the same batch cancels the first invocation.
+        #expect(await recorder.started(for: 1) == 1)
+        #expect(await recorder.started(for: 2) == 1)
+        #expect(await recorder.wasCancelled(action: 1) == true)
+        #expect(await recorder.wasCancelled(action: 2) == false)
+    }
+
+    @Test func testEffectLowPriorityNeverScheduledBelowRequested() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
+
+        sut.addEffect(ReduxEffect(priority: .low) { _, _, _ in
+            await recorder.record(priority: Task.currentPriority)
+        })
+
+        sut.dispatch(1)
+        let ran = await waitUntil { await recorder.observedPriority != nil }
+        #expect(ran)
+
+        let priority = await recorder.observedPriority
+        // The runtime may escalate a low-priority task under load, but it is
+        // never scheduled below the requested priority.
+        #expect(priority == nil || priority! >= TaskPriority.low)
+    }
+
+    @Test func testEffectDefaultPriorityInheritsSchedulerPriority() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
+
+        sut.addEffect { _, _, _ in
+            await recorder.record(priority: Task.currentPriority)
         }
+
+        sut.dispatch(1)
+        let ran = await waitUntil { await recorder.observedPriority != nil }
+        #expect(ran)
+
+        let priority = await recorder.observedPriority
+        // Default priority inherits from the scheduler task (.userInitiated
+        // for AsyncSerialScheduler); escalation is allowed, downgrade is not.
+        #expect(priority == nil || priority! >= TaskPriority.userInitiated)
     }
 
-    func open() {
-        isOpen = true
-        let pending = waiters
-        waiters.removeAll()
-        pending.forEach { $0.resume() }
-    }
-}
-
-/// Records invocations, state snapshots, cancellation and priority signals.
-private actor Recorder {
-    var states: [Int] = []
-    var actions: [Int] = []
-    var tags: [String] = []
-    var started = 0
-    var finished = 0
-    var startedByAction: [Int: Int] = [:]
-    var finishedByAction: [Int: Bool] = [:]
-    var observedPriority: TaskPriority?
-
-    func record(state: Int, action: Int) {
-        states.append(state)
-        actions.append(action)
-    }
-
-    func record(tag: String) { tags.append(tag) }
-
-    func record(priority: TaskPriority) { observedPriority = priority }
-
-    func markStarted(_ action: Int) {
-        started += 1
-        startedByAction[action, default: 0] += 1
-    }
-
-    func markFinished(_ action: Int, wasCancelled: Bool = false) {
-        finished += 1
-        finishedByAction[action] = wasCancelled
-    }
-
-    func started(for action: Int) -> Int { startedByAction[action] ?? 0 }
-
-    func wasCancelled(action: Int) -> Bool? { finishedByAction[action] }
 }

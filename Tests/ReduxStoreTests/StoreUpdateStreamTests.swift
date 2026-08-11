@@ -9,7 +9,6 @@ import Testing
 import ReduxCore
 
 struct StoreUpdateStreamTests {
-    typealias Sut = Store<Int, Int>
     typealias SutGraph = Sut.Snapshot
     
     @Test func testUpdatesStream() async throws {
@@ -38,12 +37,5 @@ struct StoreUpdateStreamTests {
         #expect(snapshots[0].state == 0)
         #expect(snapshots[1].state == 1)
         #expect(snapshots[2].state == 3)
-    }
-}
-
-private extension StoreUpdateStreamTests {
-    //MARK: - Helpers
-    func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
     }
 }

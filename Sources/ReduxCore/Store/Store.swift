@@ -432,7 +432,6 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             guard let self else { return }
 
             let current = _state.withLock(\.self)
-            let effects = effects.withLock(\.self)
 
             let updated = pending.lazy
                 .filter { self.runPermissions(state: current, action: $0) }

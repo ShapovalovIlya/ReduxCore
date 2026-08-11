@@ -22,10 +22,10 @@ struct SchedulerTests {
 
     @Test func serialExecutionOfSyncWork() async throws {
         let sut = makeSUT()
-        let accumulator = Accumulator()
+        let accumulator = LockedTap()
 
         for index in 1...5 {
-            sut.schedule { accumulator.append(index) }
+            sut.schedule { accumulator.record(index) }
         }
 
         await sut.flush()
@@ -37,12 +37,12 @@ struct SchedulerTests {
 
     @Test func serialExecutionOfAsyncWork() async throws {
         let sut = makeSUT()
-        let accumulator = Accumulator()
+        let accumulator = LockedTap()
 
         for index in 1...5 {
             sut.schedule {
                 try? await Task.sleep(nanoseconds: UInt64.random(in: 100_000...1_000_000))
-                accumulator.append(index)
+                accumulator.record(index)
             }
         }
 
@@ -55,19 +55,19 @@ struct SchedulerTests {
 
     @Test func serialExecutionOfMixedWork() async throws {
         let sut = makeSUT()
-        let accumulator = Accumulator()
+        let accumulator = LockedTap()
 
-        sut.schedule { accumulator.append(1) }
+        sut.schedule { accumulator.record(1) }
         sut.schedule {
             try? await Task.sleep(nanoseconds: 500_000)
-            accumulator.append(2)
+            accumulator.record(2)
         }
-        sut.schedule { accumulator.append(3) }
+        sut.schedule { accumulator.record(3) }
         sut.schedule {
             try? await Task.sleep(nanoseconds: 100_000)
-            accumulator.append(4)
+            accumulator.record(4)
         }
-        sut.schedule { accumulator.append(5) }
+        sut.schedule { accumulator.record(5) }
 
         await sut.flush()
 
@@ -78,12 +78,12 @@ struct SchedulerTests {
 
     @Test func serialExecutionFromMultipleThreads() async throws {
         let sut = makeSUT()
-        let accumulator = Accumulator()
+        let accumulator = LockedTap()
 
         await withTaskGroup(of: Void.self) { group in
             for index in 1...20 {
                 group.addTask {
-                    sut.schedule { accumulator.append(index) }
+                    sut.schedule { accumulator.record(index) }
                 }
             }
             await group.waitForAll()
@@ -99,14 +99,14 @@ struct SchedulerTests {
 
     @Test func flushWaitsForAllScheduledWork() async throws {
         let sut = makeSUT()
-        let step = Accumulator()
+        let step = LockedTap()
 
-        sut.schedule { step.append(1) }
+        sut.schedule { step.record(1) }
         sut.schedule {
             try? await Task.sleep(nanoseconds: 200_000)
-            step.append(2)
+            step.record(2)
         }
-        sut.schedule { step.append(3) }
+        sut.schedule { step.record(3) }
 
         await sut.flush()
 
@@ -115,15 +115,15 @@ struct SchedulerTests {
 
     @Test func multipleFlushCallsInSequence() async throws {
         let sut = makeSUT()
-        let step = Accumulator()
+        let step = LockedTap()
 
-        sut.schedule { step.append(1) }
-        sut.schedule { step.append(2) }
+        sut.schedule { step.record(1) }
+        sut.schedule { step.record(2) }
         await sut.flush()
         #expect(step.values == [1, 2])
 
-        sut.schedule { step.append(3) }
-        sut.schedule { step.append(4) }
+        sut.schedule { step.record(3) }
+        sut.schedule { step.record(4) }
         await sut.flush()
         #expect(step.values == [1, 2, 3, 4])
     }
@@ -137,13 +137,13 @@ struct SchedulerTests {
 
     @Test func flushAndConcurrentSchedule() async throws {
         let sut = makeSUT()
-        let step = Accumulator()
+        let step = LockedTap()
 
         // Schedule work from multiple tasks concurrently, then flush
         await withTaskGroup(of: Void.self) { group in
             for index in 1...10 {
                 group.addTask {
-                    sut.schedule { step.append(index) }
+                    sut.schedule { step.record(index) }
                 }
             }
             await group.waitForAll()
@@ -257,16 +257,3 @@ struct SchedulerTests {
     }
 }
 
-// MARK: - Helpers
-
-private extension SchedulerTests {
-
-    /// Thread-safe accumulator for collecting ordered values across concurrent boundaries.
-    final class Accumulator: @unchecked Sendable {
-        private(set) var values: [Int] = []
-
-        func append(_ value: Int) {
-            values.append(value)
-        }
-    }
-}

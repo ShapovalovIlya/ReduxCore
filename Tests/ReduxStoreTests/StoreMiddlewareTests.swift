@@ -5,11 +5,11 @@
 //  Created by Илья Шаповалов on 23.12.2023.
 //
 
+import Foundation
 import Testing
 import ReduxCore
 
 struct StoreMiddlewareTests {
-    typealias Sut = Store<Int, Int>
     
     @Test func testMiddlewareAddsActions() async throws {
         let sut = makeSUT()
@@ -203,14 +203,107 @@ struct StoreMiddlewareTests {
         // State 7 + original 2 + branch [3] + trailing 4 = 16.
         #expect(sut.state == 16)
     }
+
+    @Test func testOriginalActionAlwaysFirstInBatch() async throws {
+        let sut = Store(initial: [Int](), scheduler: AsyncSerialScheduler()) { $0.append($1) }
+
+        sut.addMiddleware { _, _ in [2, 3] }
+
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+
+        // The original action always precedes middleware output in the
+        // action list: [1, 2, 3].
+        #expect(sut.state == [1, 2, 3])
+    }
+
+    @Test func testMiddlewareSeesPreBatchState() async throws {
+        let sut = makeSUT()
+        let tap = LockedTap()
+
+        sut.addMiddleware { state, _ in
+            tap.record(state)
+            [Int]()
+        }
+
+        sut.dispatch(contentsOf: [1, 1])
+        await sut.scheduler.flush()
+
+        // Middleware runs once per action in the batch, always with the
+        // pre-batch state (0), never the intermediate state (1).
+        #expect(sut.state == 2)
+        #expect(tap.values == [0, 0])
+    }
+
+    @Test func testRemoveMiddlewareReturnsRemovedMiddleware() async throws {
+        let sut = makeSUT()
+
+        let id = sut.addMiddleware { _, _ in [5] }
+
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+        #expect(sut.state == 6)
+
+        let removed = sut.removeMiddleware(withId: id)
+        #expect(removed != nil)
+
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+        #expect(sut.state == 7)
+
+        #expect(sut.removeMiddleware(withId: id) == nil)
+        #expect(sut.removeMiddleware(withId: UUID()) == nil)
+    }
+
+    @Test func testMiddlewareOutputNotReroutedThroughMiddleware() async throws {
+        let sut = makeSUT()
+        let tap = LockedTap()
+
+        // Middleware A observes every action it is fed and contributes nothing.
+        sut.addMiddleware { _, action in
+            tap.record(action)
+            [Int]()
+        }
+        // Middleware B appends an extra action.
+        sut.addMiddleware { _, _ in [5] }
+
+        sut.dispatch(1)
+        await sut.scheduler.flush()
+
+        // Middleware output (5) is reduced directly and never re-routed
+        // through other middleware: A only ever sees the original action.
+        #expect(sut.state == 6)
+        #expect(tap.values == [1])
+    }
+
+    @Test func testMiddlewareRegistryConcurrentMutation() async throws {
+        let sut = Store(initial: 0) { $0 += $1 }
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for _ in 0..<200 {
+                    sut.dispatch(1)
+                }
+            }
+            group.addTask {
+                for _ in 0..<200 {
+                    let id = sut.addMiddleware { _, _ in [Int]() }
+                    _ = sut.removeMiddleware(withId: id)
+                }
+            }
+            await group.waitForAll()
+        }
+
+        await sut.scheduler.flush()
+
+        // The churned middleware contributes nothing, so every dispatch
+        // still reduces: 0 + 200.
+        #expect(sut.state == 200)
+    }
+
 }
 
 private extension StoreMiddlewareTests {
-    //MARK: - Helpers
-    func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
-    }
-    
     // A Void-valued helper used to prove Void statements are allowed in the
     // ActionBuilder body.
     func logDebug(_ message: String) { }

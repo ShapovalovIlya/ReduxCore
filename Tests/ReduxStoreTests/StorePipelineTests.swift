@@ -9,7 +9,6 @@ import Testing
 import ReduxCore
 
 struct StorePipelineTests {
-    typealias Sut = Store<Int, Int>
     
     @Test func testPermissionMiddlewareEffectPipeline() async throws {
         let sut = makeSUT()
@@ -38,11 +37,26 @@ struct StorePipelineTests {
         // Effect fires twice (once per reduced action)
         #expect(await recorder.count == 2)
     }
-}
 
-private extension StorePipelineTests {
-    //MARK: - Helpers
-    func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
+    @Test func testStoreDeallocatesWithInstalledRegistries() async throws {
+        var sut: Store<Int, Int>? = Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
+        weak var weakSut = sut
+
+        if let s = sut {
+            s.addPermission { _, _ in true }
+            s.addMiddleware { _, _ in [Int]() }
+            s.addEffect { _, _, _ in () }
+            s.dispatch(1)
+            await s.scheduler.flush()
+        }
+
+        #expect(sut?.state == 1)
+
+        // Drop the only strong reference: registry closures that do not
+        // capture the store must not prevent deallocation.
+        sut = nil
+        let deallocated = await waitUntil { weakSut == nil }
+        #expect(deallocated)
     }
+
 }

@@ -14,7 +14,6 @@ import ReduxStream
 /// pipeline via the `ReduxEffect` run callback: chaining, per-dispatch
 /// subscriber notifications, removeEffect semantics, and store lifetime.
 struct StoreEffectActionTests {
-    typealias Sut = Store<Int, Int>
 
     //MARK: - Re-dispatch through the full pipeline
 
@@ -46,13 +45,13 @@ struct StoreEffectActionTests {
 
     @Test func testFollowUpVisibleToSubscribers() async throws {
         let sut = makeSUT()
-        let buffer = StateBuffer()
+        let buffer = LockedTap()
         let driver = StateStreamer<Sut.Snapshot>()
         sut.install(driver)
 
         let collect = Task {
             for await snapshot in driver {
-                await buffer.append(snapshot.state)
+                buffer.record(snapshot.state)
             }
         }
 
@@ -167,13 +166,13 @@ struct StoreEffectActionTests {
 
     @Test func testMultipleActionEffectsDispatchSeparately() async throws {
         let sut = makeSUT()
-        let buffer = StateBuffer()
+        let buffer = LockedTap()
         let driver = StateStreamer<Sut.Snapshot>()
         sut.install(driver)
 
         let collect = Task {
             for await snapshot in driver {
-                await buffer.append(snapshot.state)
+                buffer.record(snapshot.state)
             }
         }
 
@@ -300,76 +299,49 @@ struct StoreEffectActionTests {
         let deallocated = await waitUntil { weakSut == nil }
         #expect(deallocated)
     }
-}
 
-private extension StoreEffectActionTests {
-    //MARK: - Helpers
-    func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
-    }
-}
+    @Test func testRemoveEffectSetsCancellationFlagOnInFlightTask() async throws {
+        let sut = makeSUT()
+        let recorder = Recorder()
 
-//MARK: - Shared test helpers
+        let id = sut.addEffect { (_: Int, _: Int, _: (Int) -> Void) in
+            await recorder.markStarted()
+            try? await Task.sleep(for: .milliseconds(100))
+            await recorder.markFinished(wasCancelled: Task.isCancelled)
+        }
 
-/// Records (state, action) and lifecycle markers across async boundaries.
-private actor Recorder {
-    var states: [Int] = []
-    var actions: [Int] = []
-    var started = 0
-    var finished = 0
-    var sentinel = 0
+        sut.dispatch(1)
 
-    func record(state: Int, action: Int) {
-        states.append(state)
-        actions.append(action)
-    }
+        // Wait until the effect is actually in flight.
+        let started = await waitUntil { await recorder.started == 1 }
+        #expect(started)
 
-    func record(action: Int) {
-        actions.append(action)
-    }
+        let removed = sut.removeEffect(withId: id)
+        #expect(removed?.id == id)
 
-    func markStarted() { started += 1 }
-    func markFinished() { finished += 1 }
-    func markSentinel() { sentinel += 1 }
-}
-
-/// Thread-safe buffer of states observed by a subscriber.
-private actor StateBuffer {
-    var values: [Int] = []
-
-    func append(_ value: Int) {
-        values.append(value)
-    }
-}
-
-/// Thread-safe collector usable from synchronous permission gates.
-private final class LockedTap: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _values: [Int] = []
-
-    func record(_ value: Int) {
-        lock.lock()
-        defer { lock.unlock() }
-        _values.append(value)
+        // The in-flight body runs to completion but observes the cooperative
+        // cancellation flag that removal set on its task.
+        let finished = await waitUntil { await recorder.finished == 1 }
+        #expect(finished)
+        #expect(await recorder.finishedWasCancelled == true)
     }
 
-    var values: [Int] {
-        lock.lock()
-        defer { lock.unlock() }
-        return _values
-    }
-}
+    @Test func testCancelledEffectCanStillDispatchFollowUp() async throws {
+        let sut = makeSUT()
 
-/// Polls `condition` until it returns true or the deadline expires.
-func waitUntil(
-    timeoutNanoseconds: UInt64 = 2_000_000_000,
-    _ condition: () async -> Bool
-) async -> Bool {
-    let start = DispatchTime.now().uptimeNanoseconds
-    let deadline = start + timeoutNanoseconds
-    while DispatchTime.now().uptimeNanoseconds < deadline {
-        if await condition() { return true }
-        try? await Task.sleep(nanoseconds: 5_000_000)
+        // A switchToLatest effect that ignores its own cancellation still
+        // dispatches: the follow-up flows through the full pipeline.
+        sut.addEffect(ReduxEffect(policy: .switchToLatest) { (_: Int, action: Int, send: (Int) -> Void) in
+            guard action == 1 else { return }
+            try? await Task.sleep(for: .milliseconds(50))
+            send(10)
+        })
+
+        sut.dispatch(contentsOf: [1, 2])
+
+        // 1 + 2 (batch) + 10 (cancelled effect's follow-up) = 13.
+        let reached = await waitUntil { sut.state == 13 }
+        #expect(reached)
     }
-    return await condition()
+
 }

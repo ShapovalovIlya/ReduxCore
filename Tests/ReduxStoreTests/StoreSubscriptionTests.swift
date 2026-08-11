@@ -10,7 +10,6 @@ import ReduxStream
 import ReduxCore
 
 struct StoreSubscriptionTests {
-    typealias Sut = Store<Int, Int>
     typealias SutGraph = Sut.Snapshot
     typealias Streamer = StateStreamer<SutGraph>
     
@@ -172,12 +171,5 @@ struct StoreSubscriptionTests {
         
         let result = await task.value
         #expect(result == [0, 3])
-    }
-}
-
-private extension StoreSubscriptionTests {
-    //MARK: - Helpers
-    func makeSUT() -> Sut {
-        Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
     }
 }
