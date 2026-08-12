@@ -274,7 +274,7 @@ struct StoreEffectActionTests {
         weak let weakSut = sut
         let recorder = Recorder()
 
-        sut?.addEffect { (_: Int, _: Int, _: (Int) -> Void) in
+        sut?.addEffect { _,_,_ in
             await recorder.markStarted()
             try? await Task.sleep(nanoseconds: 200_000_000)
             await recorder.markFinished()
@@ -302,7 +302,7 @@ struct StoreEffectActionTests {
         let sut = makeSUT()
         let recorder = Recorder()
 
-        let id = sut.addEffect { (_: Int, _: Int, _: (Int) -> Void) in
+        let id = sut.addEffect { _,_,_ in
             await recorder.markStarted()
             try? await Task.sleep(for: .milliseconds(100))
             await recorder.markFinished(wasCancelled: Task.isCancelled)
@@ -316,6 +316,7 @@ struct StoreEffectActionTests {
 
         let removed = sut.removeEffect(withId: id)
         #expect(removed?.id == id)
+        await sut.scheduler.flush()
 
         // The in-flight body runs to completion but observes the cooperative
         // cancellation flag that removal set on its task.
@@ -329,7 +330,7 @@ struct StoreEffectActionTests {
 
         // A switchToLatest effect that ignores its own cancellation still
         // dispatches: the follow-up flows through the full pipeline.
-        sut.addEffect(ReduxEffect(policy: .switchToLatest) { (_: Int, action: Int, send: (Int) -> Void) in
+        sut.addEffect(ReduxEffect(policy: .switchToLatest) { _, action, send in
             guard action == 1 else { return }
             try? await Task.sleep(for: .milliseconds(50))
             send(10)
