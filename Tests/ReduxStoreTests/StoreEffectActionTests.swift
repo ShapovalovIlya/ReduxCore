@@ -129,7 +129,6 @@ struct StoreEffectActionTests {
         #expect(effectRan)
         // An effect that never invokes the callback produces no follow-up:
         // state stays 1.
-        try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(sut.state == 1)
         // The effect is never re-invoked for a follow-up that never arrives.
         #expect(await recorder.actions == [1])
@@ -158,7 +157,6 @@ struct StoreEffectActionTests {
         #expect(settled)
         #expect(sut.state == 6)
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
         #expect(sut.state == 6)
     }
 

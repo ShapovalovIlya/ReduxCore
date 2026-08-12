@@ -30,7 +30,7 @@ struct StorePipelineTests {
         
         sut.dispatch(1)
         await sut.scheduler.flush()
-        try await Task.sleep(for: .milliseconds(100))
+        await waitUntil { await recorder.count == 2 }
         
         // State: 1 (original) + 1 (middleware) = 2
         #expect(sut.state == 2)

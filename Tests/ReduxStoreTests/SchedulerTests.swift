@@ -240,9 +240,8 @@ struct SchedulerTests {
 
         scheduler = nil
 
-        try await Task.sleep(nanoseconds: 500_000)
-
-        #expect(weakRef == nil)
+        let deallocated = await waitUntil(timeout: .milliseconds(500)) { weakRef == nil }
+        #expect(deallocated)
     }
 
     @Test func flushBeforeDeinit() async throws {

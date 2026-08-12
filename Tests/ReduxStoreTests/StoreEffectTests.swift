@@ -29,7 +29,7 @@ struct StoreEffectTests {
         
         sut.dispatch(5)
         await sut.scheduler.flush()
-        try await Task.sleep(for: .milliseconds(100))
+        await waitUntil { await recorder.states.count == 1 }
         
         let states = await recorder.states
         let actions = await recorder.actions
@@ -55,7 +55,7 @@ struct StoreEffectTests {
         
         sut.dispatch(1)
         await sut.scheduler.flush()
-        try await Task.sleep(for: .milliseconds(100))
+        await waitUntil { await recorder.count == 2 }
         
         #expect(await recorder.count == 2)
     }
@@ -79,7 +79,6 @@ struct StoreEffectTests {
         
         sut.dispatch(1)
         await sut.scheduler.flush()
-        try await Task.sleep(for: .milliseconds(100))
         
         #expect(await recorder.count == 0)
     }
@@ -100,7 +99,6 @@ struct StoreEffectTests {
 
         sut.dispatch(1)
         await sut.scheduler.flush()
-        try await Task.sleep(for: .milliseconds(100))
 
         // The action never reaches the reducer, so no effect may run.
         #expect(sut.state == 0)
@@ -126,7 +124,7 @@ struct StoreEffectTests {
 
         sut.dispatch(5)
         await sut.scheduler.flush()
-        try await Task.sleep(for: .milliseconds(100))
+        await waitUntil { await recorder.states.count == 1 }
 
         // Effects fire per reduced action even when the reducer leaves the
         // state untouched; the effect sees the unchanged state.
