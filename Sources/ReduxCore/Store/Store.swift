@@ -296,10 +296,91 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
     @usableFromInline
     private(set) var subscribers = [AnyHashable: AsyncStream<Store>.Continuation]()
 
-    private var permissions = OSUnfairLock<[UUID: PermissionGate]>(initial: [:])
-    private var middleware = OSUnfairLock<[UUID: Middleware]>(initial: [:])
-    private var effects = OSUnfairLock<[UUID: ReduxEffect<S,A>]>(initial: [:])
-    private var running = OSUnfairLock<[UUID: Task<Void, Never>]>(initial: [:])
+    /// A registry of all pipeline plugins (permissions, middleware, effects and
+    /// their running tasks), protected by a single `OSUnfairLock`.
+    ///
+    /// The dispatch hot path snapshots the whole registry once per batch, so the
+    /// pipeline never takes per-action locks; registration APIs mutate it under
+    /// the same lock. `_state` is intentionally kept in a separate lock: it is
+    /// the hottest property (read from any thread on every `state` access) and
+    /// shares no invariants with the plugin registries.
+    private struct Registry {
+        var permissions: [UUID: PermissionGate] = [:]
+        var middleware: [UUID: Middleware] = [:]
+        var effects: [UUID: ReduxEffect<S, A>] = [:]
+        var running: [UUID: Task<Void, Never>] = [:]
+
+        func runPermissions(with state: S) -> (A) -> Bool {
+            { action in
+                if permissions.isEmpty {
+                    return true
+                }
+                return permissions.values.lazy
+                    .map { $0(state, action) }
+                    .allSatisfy { $0 }
+            }
+        }
+
+        func runMiddleware(with state: S) -> (A) -> [A] {
+            { action in
+                if middleware.isEmpty {
+                    return [action]
+                }
+                return middleware.values.lazy
+                    .map { $0(state, action) }
+                    .reduce(into: [action], +=)
+            }
+        }
+
+        mutating func runEffects(
+            state: S,
+            action: A,
+            run: @escaping @Sendable (A) -> Void
+        ) {
+            if effects.isEmpty {
+                return
+            }
+            running = effects.values.reduce(into: running) { tasks, effect in
+                let scheduling = tasks[effect.id].take()
+                tasks[effect.id] = Task(priority: effect.priority) {
+                    guard let scheduling, !scheduling.isCancelled else {
+                        await effect.run(state, action, run)
+                        return
+                    }
+
+                    switch effect.policy {
+                    case .concat:
+                        await scheduling.value
+                        await effect.run(state, action, run)
+
+                    case .switchToLatest:
+                        scheduling.cancel()
+                        await effect.run(state, action, run)
+
+                    case .dropWhileActive:
+                        await scheduling.value
+
+                    case .merge:
+                        await withTaskGroup { group in
+                            group.addTask {
+                                await scheduling.value
+                            }
+                            group.addTask {
+                                await effect.run(state, action, run)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        mutating func removeEffect(withId id: UUID) -> ReduxEffect<S,A>? {
+            running.removeValue(forKey: id)?.cancel()
+            return effects.removeValue(forKey: id)
+        }
+    }
+
+    private let registry = OSUnfairLock<Registry>(initial: Registry())
 
     //MARK: - init(_:)
     
@@ -360,68 +441,6 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
         }
     }
 
-    func runPermissions(state: State, action: Action) -> Bool {
-        if permissions.withLock(\.isEmpty) {
-            return true
-        }
-        return permissions.withLock(\.values).lazy
-            .map { $0(state,action) }
-            .allSatisfy { $0 }
-    }
-
-    func runMiddleware(state: State, action: Action) -> [Action] {
-        if middleware.withLock(\.isEmpty) {
-            return [action]
-        }
-        return middleware.withLock(\.values).lazy
-            .flatMap { $0(state,action) }
-            .reduce(into: [action], +=)
-    }
-
-    /// Runs every registered effect for the given action and re-dispatches the
-    /// results of action effects.
-    ///
-    /// Both effect registries are snapshotted under lock when the task group
-    /// starts, so effects removed mid-run still execute for this dispatch. The
-    /// group keeps running until every registered effect — including slow void
-    /// effects — completes; meanwhile each action-effect result is re-dispatched
-    /// individually, in completion order (nondeterministic across concurrent
-    /// effects). Every such re-dispatch is a separate scheduler pass that
-    /// produces its own subscriber notification.
-    func runEffects(state: State, action: Action) {
-        if effects.withLock(\.isEmpty) {
-            return
-        }
-        let updated = effects.withLock(\.values)
-            .reduce(into: running.withLock(\.self)) { tasks, effect in
-                let scheduling = tasks[effect.id]
-                tasks[effect.id] = Task(priority: effect.priority) { [weak self] in
-                    switch effect.policy {
-                    case .concat:
-                        if scheduling?.isCancelled == true {
-                            break
-                        }
-                        await scheduling?.value
-
-                    case .switchToLatest:
-                        scheduling?.cancel()
-
-                    case .dropWhileActive:
-                        // TO DO: доработать
-                        break
-
-                    case .merge:
-                        break
-                    }
-
-                    await effect.run(state, action) { action in
-                        self?.dispatch(action)
-                    }
-                }
-            }
-        running.withLock { $0 = updated }
-    }
-
     @Sendable
     @usableFromInline
     func dispatcher(_ actions: some Collection<A>) {
@@ -432,14 +451,20 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             guard let self else { return }
 
             let current = _state.withLock(\.self)
+            let plugins = registry.withLock(\.self)
 
             let updated = pending.lazy
-                .filter { self.runPermissions(state: current, action: $0) }
-                .flatMap { self.runMiddleware(state: current, action: $0) }
-                .filter { self.runPermissions(state: current, action: $0) }
+                .filter(plugins.runPermissions(with: current))
+                .flatMap(plugins.runMiddleware(with: current))
+                .filter(plugins.runPermissions(with: current))
                 .reduce(into: current) { updated, action in
                     self.reducer(&updated, action)
-                    self.runEffects(state: updated, action: action)
+
+                    self.registry.withLock { registry in
+                        registry.runEffects(state: updated, action: action) { [weak self] a in
+                            self?.dispatch(a)
+                        }
+                    }
                 }
 
             _state.withLock { $0 = updated }
@@ -491,7 +516,7 @@ public extension Store {
     @discardableResult
     func addPermission(_ permission: @escaping PermissionGate) -> UUID {
         let id = UUID()
-        self.permissions.withLock { $0[id] = permission }
+        registry.withLock { $0.permissions[id] = permission }
         return id
     }
 
@@ -510,7 +535,7 @@ public extension Store {
     ///
     @discardableResult
     func removePermission(withId id: UUID) -> PermissionGate? {
-        self.permissions.withLock { $0.removeValue(forKey: id) }
+        registry.withLock { $0.permissions.removeValue(forKey: id) }
     }
 
     /// Adds a middleware function to the store's action dispatch pipeline.
@@ -574,7 +599,7 @@ public extension Store {
         @ActionBuilder _ middleware: @escaping Middleware
     ) -> UUID {
         let id = UUID()
-        self.middleware.withLock { $0[id] = middleware }
+        registry.withLock { $0.middleware[id] = middleware }
         return id
     }
 
@@ -593,12 +618,12 @@ public extension Store {
     ///
     @discardableResult
     func removeMiddleware(withId id: UUID) -> Middleware? {
-        middleware.withLock { $0.removeValue(forKey: id) }
+        registry.withLock { $0.middleware.removeValue(forKey: id) }
     }
 
     @discardableResult
     func addEffect(_ effect: ReduxEffect<S,A>) -> UUID {
-        effects.withLock { $0[effect.id] = effect }
+        registry.withLock { $0.effects[effect.id] = effect }
         return effect.id
     }
 
@@ -672,8 +697,7 @@ public extension Store {
     ///
     @discardableResult
     func removeEffect(withId id: UUID) -> ReduxEffect<S,A>? {
-        running.withLock { $0.removeValue(forKey: id) }?.cancel()
-        return effects.withLock { $0.removeValue(forKey: id) }
+        registry.withLock { $0.removeEffect(withId: id) }
     }
 
     /// Creates an `AsyncStream` that emits state updates from the store.
