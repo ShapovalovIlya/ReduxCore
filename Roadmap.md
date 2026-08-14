@@ -12,46 +12,15 @@ Remaining strategic work is concentrated in three areas:
 
 ---
 
-## Phase 1: Async Effects — Critical
+## Phase 1: Async Effects — Critical ✅
 
 Registration and concurrent execution are already done (v2.4). The remaining gaps:
 
 ### Task 1.1 — Effects can return follow-up actions
-
-Current signature forces fire-and-forget:
-
-```swift
-public typealias Effect = @Sendable (S, A) async -> Void   // cannot dispatch back
-```
-
-Target:
-
-```swift
-public typealias Effect = @Sendable (S, A) async -> [A]
-```
-
 Returned actions are re-dispatched into the store through the **full pipeline** (permissions → middleware → reducer). This makes network → load-result flows expressible:
 
-```swift
-store.addEffect { state, action in
-    if case .fetch(let id) = action {
-        let result = await api.fetch(id)
-        return [.loaded(id, result)]
-    }
-    return []
-}
-```
-
-### Task 1.2 — Effect cancellation with `EffectID`
-
-- Registration takes an optional id: `store.addEffect(id: .searchDebounce) { ... }`.
-- Re-registering the same id or calling `store.cancelEffect(id:)` cancels the previous task (keep tasks in `OSUnfairLock<[EffectID: Task<Void, Never>]>`, parallel to the existing `effects` storage).
-- Enables debounce (search-as-you-type), request cancellation on navigation, and stale-response suppression.
-- **Lifecycle bug to fix:** the unstructured `Task` inside `dispatcher` strongly captures `self` (no `[weak self]`), so a long-running effect keeps the store alive, and nothing is cancelled on store deinit. Track effect tasks and cancel them all on deinit.
-
+### Task 1.2 — Effect cancellation with `UUID`
 ### Task 1.3 — Bounded effect concurrency
-
-`runEffects` currently uses an unbounded `withTaskGroup`: under high-frequency dispatch, running tasks pile up with no cap. Introduce a bounded runner or coalesce by effect identity.
 
 ---
 

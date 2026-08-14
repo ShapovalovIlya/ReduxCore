@@ -202,7 +202,11 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             effects.values.forEach { effect in
                 let schedulingTask = running[effect.id].take()
 
-                running[effect.id] = Task(priority: effect.priority) { @concurrent in
+                running[effect.id] = Task.detached(priority: effect.priority) {
+                    guard !Task.isCancelled else {
+                        schedulingTask?.cancel()
+                        return
+                    }
                     guard let schedulingTask, !schedulingTask.isCancelled else {
                         await effectRunner(effect)
                         return
@@ -403,7 +407,7 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             }
             Set(runningEffects.keys)
                 .subtracting(plugins.effects.keys)
-                .forEach { self.runningEffects.removeValue(forKey: $0) }
+                .forEach { self.runningEffects.removeValue(forKey: $0)?.cancel() }
             let noEffects = plugins.effects.isEmpty
 
             let updated = pending.lazy
@@ -608,6 +612,7 @@ public extension Store {
     @discardableResult
     func addEffect(_ effect: ReduxEffect<S,A>) -> UUID {
         registry.withLock {
+            runningEffects.removeValue(forKey: effect.id)?.cancel()
             $0.effects[effect.id] = effect
             return effect.id
         }
