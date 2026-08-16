@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.6]
+
+### Added
+
+- ``EffectPolicy`` enum — scheduling policy for effects with three cases:
+  - ``merge`` (default): run new invocations concurrently with any in-flight task
+  - ``concat``: queue invocations sequentially, waiting for the previous task to finish
+  - ``switchToLatest``: cancel the previous task and start immediately
+- ``ReduxEffect<S,A>`` struct — replaces the old ``Effect<T>`` typealias; carries a stable `UUID` id, optional `TaskPriority`, an ``EffectPolicy``, and a `run(state:action:send:)` method
+
+### Changed
+
+- **Breaking:** ``Store.Effect<T>`` typealias removed — effects are now registered via ``ReduxEffect`` structs or the closure shorthand ``addEffect(policy:_:)``
+- **Breaking:** ``addEffect(_:)`` signature changed — closure now receives three arguments `(state, action, send)` instead of two; use the `send` callback to dispatch follow-up actions
+- **Breaking:** ``removeEffect(withId:)``, ``removePermission(withId:)``, ``removeMiddleware(withId:)`` now return `Void` instead of the removed value
+- **Breaking:** ``OSUnfairLock<Registry>`` wrapper removed — ``Registry`` is now a plain `struct`; the lock was unnecessary since all mutations go through the scheduler
+- **Breaking:** effect closures no longer `throw` — errors are silently caught; dispatch a failure action explicitly to observe them
+- ``addPermission``, ``addMiddleware``, ``addEffect`` now schedule registry mutations through the store's scheduler instead of mutating directly under lock
+- ``Store`` now has a ``deinit`` that finishes all snapshot continuations and subscribers, and cancels all running effect tasks
+
+### Fixed
+
+- Long-running effects no longer retain the store — effect tasks capture `self` weakly, so the store can be deallocated while an effect is in flight
+- ``concat`` policy now checks ``Task.isCancelled`` before starting a queued invocation, preventing execution after ``removeEffect(withId:)``
+
+
+
 ## [2.5]
 
 ### Added
