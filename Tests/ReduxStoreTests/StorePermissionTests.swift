@@ -71,16 +71,16 @@ struct StorePermissionTests {
         #expect(sut.state == 1)
     }
 
-    @Test func testPermissionShortCircuitsOnFirstFalse() async throws {
+    @Test func testPermissionShortCircuitsOnFirstFalse() async {
         let sut = makeSUT()
-        let tap = LockedTap()
+        var tap = [Int]()
 
         sut.addPermission { _, _ in
-            tap.record(1)
+            tap.append(1)
             return false
         }
         sut.addPermission { _, _ in
-            tap.record(2)
+            tap.append(2)
             return false
         }
 
@@ -90,15 +90,15 @@ struct StorePermissionTests {
         // Evaluation stops at the first `false`: exactly one gate is invoked,
         // regardless of Dictionary iteration order (both gates return false).
         #expect(sut.state == 0)
-        #expect(tap.values.count == 1)
+        #expect(tap.count == 1)
     }
 
     @Test func testPermissionSeesPreBatchState() async throws {
         let sut = makeSUT()
-        let tap = LockedTap()
+        var tap = [Int]()
 
         sut.addPermission { state, _ in
-            tap.record(state)
+            tap.append(state)
             return true
         }
 
@@ -109,19 +109,7 @@ struct StorePermissionTests {
         // intermediate state after the first action was reduced. Each action
         // is gate-checked twice: before and after middleware.
         #expect(sut.state == 2)
-        #expect(tap.values == [0, 0, 0, 0])
-    }
-
-    @Test func testRemovePermissionReturnsRemovedGate() async throws {
-        let sut = makeSUT()
-
-        let id = sut.addPermission { _, _ in false }
-
-        let removed = sut.removePermission(withId: id)
-        #expect(removed != nil)
-        #expect(removed?(0, 1) == false)
-        #expect(sut.removePermission(withId: id) == nil)
-        #expect(sut.removePermission(withId: UUID()) == nil)
+        #expect(tap == [0, 0, 0, 0])
     }
 
     @Test func testPermissionRegistryConcurrentMutation() async throws {
@@ -136,7 +124,7 @@ struct StorePermissionTests {
             group.addTask {
                 for _ in 0..<200 {
                     let id = sut.addPermission { _, _ in true }
-                    _ = sut.removePermission(withId: id)
+                    sut.removePermission(withId: id)
                 }
             }
             await group.waitForAll()

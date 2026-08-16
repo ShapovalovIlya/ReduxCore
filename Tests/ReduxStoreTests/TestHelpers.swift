@@ -19,45 +19,6 @@ func makeSUT() -> Sut {
     Store(initial: 0, scheduler: AsyncSerialScheduler()) { $0 += $1 }
 }
 
-/// Thread-safe collector usable from synchronous permission gates and
-/// middleware closures.
-final class LockedTap: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _values: [Int] = []
-
-    func record(_ value: Int) {
-        lock.lock()
-        defer { lock.unlock() }
-        _values.append(value)
-    }
-
-    var values: [Int] {
-        lock.lock()
-        defer { lock.unlock() }
-        return _values
-    }
-}
-
-/// Suspends tasks that call `wait()` until `open()` resumes them.
-actor Gate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        if isOpen { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func open() {
-        isOpen = true
-        let pending = waiters
-        waiters.removeAll()
-        pending.forEach { $0.resume() }
-    }
-}
-
 /// Records invocations, state snapshots, cancellation and priority signals
 /// across async boundaries. Optional arguments let one recorder serve both
 /// per-action counting (`markStarted(action)`) and aggregate counting

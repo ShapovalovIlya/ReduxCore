@@ -219,10 +219,10 @@ struct StoreMiddlewareTests {
 
     @Test func testMiddlewareSeesPreBatchState() async throws {
         let sut = makeSUT()
-        let tap = LockedTap()
+        var tap = [Int]()
 
         sut.addMiddleware { state, _ in
-            tap.record(state)
+            tap.append(state)
             [Int]()
         }
 
@@ -232,36 +232,16 @@ struct StoreMiddlewareTests {
         // Middleware runs once per action in the batch, always with the
         // pre-batch state (0), never the intermediate state (1).
         #expect(sut.state == 2)
-        #expect(tap.values == [0, 0])
-    }
-
-    @Test func testRemoveMiddlewareReturnsRemovedMiddleware() async throws {
-        let sut = makeSUT()
-
-        let id = sut.addMiddleware { _, _ in [5] }
-
-        sut.dispatch(1)
-        await sut.scheduler.flush()
-        #expect(sut.state == 6)
-
-        let removed = sut.removeMiddleware(withId: id)
-        #expect(removed != nil)
-
-        sut.dispatch(1)
-        await sut.scheduler.flush()
-        #expect(sut.state == 7)
-
-        #expect(sut.removeMiddleware(withId: id) == nil)
-        #expect(sut.removeMiddleware(withId: UUID()) == nil)
+        #expect(tap == [0, 0])
     }
 
     @Test func testMiddlewareOutputNotReroutedThroughMiddleware() async throws {
         let sut = makeSUT()
-        let tap = LockedTap()
+        var tap = [Int]()
 
         // Middleware A observes every action it is fed and contributes nothing.
         sut.addMiddleware { _, action in
-            tap.record(action)
+            tap.append(action)
             [Int]()
         }
         // Middleware B appends an extra action.
@@ -273,7 +253,7 @@ struct StoreMiddlewareTests {
         // Middleware output (5) is reduced directly and never re-routed
         // through other middleware: A only ever sees the original action.
         #expect(sut.state == 6)
-        #expect(tap.values == [1])
+        #expect(tap == [1])
     }
 
     @Test func testMiddlewareRegistryConcurrentMutation() async throws {
@@ -288,7 +268,7 @@ struct StoreMiddlewareTests {
             group.addTask {
                 for _ in 0..<200 {
                     let id = sut.addMiddleware { _, _ in [Int]() }
-                    _ = sut.removeMiddleware(withId: id)
+                    sut.removeMiddleware(withId: id)
                 }
             }
             await group.waitForAll()

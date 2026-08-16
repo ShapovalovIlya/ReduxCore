@@ -13,7 +13,7 @@ struct StoreDispatchTests {
     typealias SutGraph = Sut.Snapshot
     typealias Streamer = StateStreamer<SutGraph>
     
-    @Test func storeDispatchActions() async throws {
+    @Test func storeDispatchActions() async {
         let sut = makeSUT()
         
         sut.dispatch(1)
@@ -28,7 +28,7 @@ struct StoreDispatchTests {
         #expect(sut.state == 8)
     }
     
-    @Test func graphDispatchSingleAction() async throws {
+    @Test func graphDispatchSingleAction() async {
         let sut = makeSUT()
         
         sut.snapshot.dispatch(1)
@@ -39,7 +39,7 @@ struct StoreDispatchTests {
         #expect(sut.state == 3)
     }
     
-    @Test func graphDispatchMultipleActions() async throws {
+    @Test func graphDispatchMultipleActions() async {
         let sut = makeSUT()
         
         sut.snapshot.dispatch(1, 1, 1)
@@ -49,7 +49,7 @@ struct StoreDispatchTests {
         #expect(sut.state == 6)
     }
     
-    @Test func storeResistDataRace() async throws {
+    @Test func storeResistDataRace() async {
         let sut = Store(initial: 0) { $0 += $1 }
         
         await withTaskGroup(of: Void.self) { group in
@@ -71,7 +71,7 @@ struct StoreDispatchTests {
         #expect(sut.state == 102)
     }
     
-    @Test func dispatchActionsInOrder() async throws {
+    @Test func dispatchActionsInOrder() async {
         let sut = Store(initial: [Int](), scheduler: AsyncSerialScheduler()) { $0.append($1) }
         let actions = Array(
             repeating: Int(Int8.random(in: Int8.min...Int8.max)),

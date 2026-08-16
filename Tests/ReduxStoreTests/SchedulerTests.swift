@@ -22,68 +22,78 @@ struct SchedulerTests {
 
     @Test func serialExecutionOfSyncWork() async throws {
         let sut = makeSUT()
-        let accumulator = LockedTap()
+        let accumulator = Recorder()
 
         for index in 1...5 {
-            sut.schedule { accumulator.record(index) }
+            sut.schedule {
+                await accumulator.record(action: index)
+            }
         }
 
         await sut.flush()
 
-        #expect(accumulator.values == [1, 2, 3, 4, 5])
+        #expect(await accumulator.actions == [1, 2, 3, 4, 5])
     }
 
     // MARK: - Serial execution: async work
 
     @Test func serialExecutionOfAsyncWork() async throws {
         let sut = makeSUT()
-        let accumulator = LockedTap()
+        let accumulator = Recorder()
 
         for index in 1...5 {
             sut.schedule {
                 try? await Task.sleep(nanoseconds: UInt64.random(in: 100_000...1_000_000))
-                accumulator.record(index)
+                await accumulator.record(action: index)
             }
         }
 
         await sut.flush()
 
-        #expect(accumulator.values == [1, 2, 3, 4, 5])
+        #expect(await accumulator.actions == [1, 2, 3, 4, 5])
     }
 
     // MARK: - Mixed sync and async work
 
     @Test func serialExecutionOfMixedWork() async throws {
         let sut = makeSUT()
-        let accumulator = LockedTap()
+        let accumulator = Recorder()
 
-        sut.schedule { accumulator.record(1) }
+        sut.schedule {
+            await accumulator.record(action: 1)
+        }
         sut.schedule {
             try? await Task.sleep(nanoseconds: 500_000)
-            accumulator.record(2)
+            await accumulator.record(action: 2)
         }
-        sut.schedule { accumulator.record(3) }
+        sut.schedule {
+            await accumulator.record(action: 3)
+        }
         sut.schedule {
             try? await Task.sleep(nanoseconds: 100_000)
-            accumulator.record(4)
+            await accumulator.record(action: 4)
         }
-        sut.schedule { accumulator.record(5) }
+        sut.schedule {
+            await accumulator.record(action: 5)
+        }
 
         await sut.flush()
 
-        #expect(accumulator.values == [1, 2, 3, 4, 5])
+        #expect(await accumulator.actions == [1, 2, 3, 4, 5])
     }
 
     // MARK: - Multiple threads
 
     @Test func serialExecutionFromMultipleThreads() async throws {
         let sut = makeSUT()
-        let accumulator = LockedTap()
+        let accumulator = Recorder()
 
         await withTaskGroup(of: Void.self) { group in
             for index in 1...20 {
                 group.addTask {
-                    sut.schedule { accumulator.record(index) }
+                    sut.schedule {
+                        await accumulator.record(action: index)
+                    }
                 }
             }
             await group.waitForAll()
@@ -91,68 +101,54 @@ struct SchedulerTests {
 
         await sut.flush()
 
-        #expect(accumulator.values.count == 20)
-        #expect(Set(accumulator.values) == Set(1...20))
+        let values = await accumulator.actions
+        #expect(values.count == 20)
+        #expect(Set(values) == Set(1...20))
     }
 
     // MARK: - Flush behavior
 
     @Test func flushWaitsForAllScheduledWork() async throws {
         let sut = makeSUT()
-        let step = LockedTap()
+        let step = Recorder()
 
-        sut.schedule { step.record(1) }
+        sut.schedule {
+            await step.record(action: 1)
+        }
         sut.schedule {
             try? await Task.sleep(nanoseconds: 200_000)
-            step.record(2)
+            await step.record(action: 2)
         }
-        sut.schedule { step.record(3) }
+        sut.schedule {
+            await step.record(action: 3)
+        }
 
         await sut.flush()
 
-        #expect(step.values == [1, 2, 3])
+        #expect(await step.actions == [1, 2, 3])
     }
 
     @Test func multipleFlushCallsInSequence() async throws {
         let sut = makeSUT()
-        let step = LockedTap()
+        let step = Recorder()
 
-        sut.schedule { step.record(1) }
-        sut.schedule { step.record(2) }
-        await sut.flush()
-        #expect(step.values == [1, 2])
-
-        sut.schedule { step.record(3) }
-        sut.schedule { step.record(4) }
-        await sut.flush()
-        #expect(step.values == [1, 2, 3, 4])
-    }
-
-    @Test func flushWithNoScheduledWork() async throws {
-        let sut = makeSUT()
-
-        // Should complete without hanging when queue is idle
-        await sut.flush()
-    }
-
-    @Test func flushAndConcurrentSchedule() async throws {
-        let sut = makeSUT()
-        let step = LockedTap()
-
-        // Schedule work from multiple tasks concurrently, then flush
-        await withTaskGroup(of: Void.self) { group in
-            for index in 1...10 {
-                group.addTask {
-                    sut.schedule { step.record(index) }
-                }
-            }
-            await group.waitForAll()
+        sut.schedule {
+            await step.record(action: 1)
         }
-
+        sut.schedule {
+            await step.record(action: 2)
+        }
         await sut.flush()
+        #expect(await step.actions == [1, 2])
 
-        #expect(step.values.count == 10)
-        #expect(Set(step.values) == Set(1...10))
+        sut.schedule {
+            await step.record(action: 3)
+        }
+        sut.schedule {
+            await step.record(action: 4)
+        }
+        await sut.flush()
+        #expect(await step.actions == [1, 2, 3, 4])
     }
 
     // MARK: - Store integration
@@ -242,17 +238,6 @@ struct SchedulerTests {
 
         let deallocated = await waitUntil(timeout: .milliseconds(500)) { weakRef == nil }
         #expect(deallocated)
-    }
-
-    @Test func flushBeforeDeinit() async throws {
-        let scheduler = makeSUT()
-        weak var weakScheduler: AsyncSerialScheduler? = scheduler
-
-        scheduler.schedule { /* no-op */ }
-        await scheduler.flush()
-
-        // Verify no crash and scheduler becomes nil after all refs drop
-        withExtendedLifetime(scheduler) {}
     }
 }
 

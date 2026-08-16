@@ -197,8 +197,11 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
 
         func mergeEffects(
             into running: inout [UUID: Task<Void, Never>],
-            effectRunner: @escaping @Sendable (ReduxEffect<S,A>) async -> Void
+            effectRunner: @escaping @Sendable (ReduxEffect<S, A>) async -> Void
         ) {
+            if effects.isEmpty {
+                return
+            }
             effects.values.forEach { effect in
                 let schedulingTask = running[effect.id].take()
 
@@ -224,7 +227,12 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
 
                     case .merge:
                         await withTaskGroup { group in
-                            group.addTask { await schedulingTask.value }
+                            group.addTask {
+                                if Task.isCancelled {
+                                    schedulingTask.cancel()
+                                }
+                                await schedulingTask.value
+                            }
                             group.addTask { await effectRunner(effect) }
                         }
                     }
@@ -323,14 +331,11 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
     }
     
     //MARK: - Private properties
-    @usableFromInline
     private(set) var continuations = [AnyHashable: SnapshotContinuation]()
-    
-    @usableFromInline
     private(set) var subscribers = [AnyHashable: AsyncStream<Store>.Continuation]()
+    private(set) var runningEffects = [UUID: Task<Void, Never>]()
 
-    private let registry = OSUnfairLock<Registry>(initial: Registry())
-    private var runningEffects = [UUID: Task<Void, Never>]()
+    private var registry = Registry()
 
     //MARK: - init(_:)
     
@@ -364,7 +369,15 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
         self.reducer = reducer
         self.scheduler = scheduler
     }
-    
+
+    deinit {
+        _state.withLock {
+            continuations.forEach { $1.finish() }
+            subscribers.forEach { $1.finish() }
+            runningEffects.forEach { $1.cancel() }
+        }
+    }
+
     //MARK: - Public methods
     @inlinable
     public subscript<T>(dynamicMember keyPath: KeyPath<Snapshot, T>) -> T {
@@ -401,25 +414,22 @@ public final class Store<S: Sendable, A: Sendable>: ReduxStore, @unchecked Senda
             guard let self else { return }
 
             let current = _state.withLock(\.self)
-            let plugins = registry.withLock(\.self)
             let dispatch: @Sendable (A) -> Void = { [weak self] action in
                 self?.dispatch(action)
             }
             Set(runningEffects.keys)
-                .subtracting(plugins.effects.keys)
+                .subtracting(registry.effects.keys)
                 .forEach { self.runningEffects.removeValue(forKey: $0)?.cancel() }
-            let noEffects = plugins.effects.isEmpty
 
             let updated = pending.lazy
-                .filter(plugins.runPermissions(with: current))
-                .flatMap(plugins.runMiddleware(with: current))
-                .filter(plugins.runPermissions(with: current))
+                .filter(registry.runPermissions(with: current))
+                .flatMap(registry.runMiddleware(with: current))
+                .filter(registry.runPermissions(with: current))
                 .reduce(into: current) { updated, action in
                     self.reducer(&updated, action)
-                    
-                    if noEffects { return }
-                    plugins.mergeEffects(into: &self.runningEffects) { [updated] effect in
-                        await effect.run(updated, action, dispatch)
+
+                    self.registry.mergeEffects(into: &self.runningEffects) { [updated] effect in
+                        await effect.run(state: updated, action: action, send: dispatch)
                     }
                 }
 
@@ -472,7 +482,9 @@ public extension Store {
     @discardableResult
     func addPermission(_ permission: @escaping PermissionGate) -> UUID {
         let id = UUID()
-        registry.withLock { $0.permissions[id] = permission }
+        scheduler.schedule { [weak self] in
+            self?.registry.permissions[id] = permission
+        }
         return id
     }
 
@@ -480,8 +492,6 @@ public extension Store {
     ///
     /// - Parameter id: The `UUID` returned when the permission gate was added via
     ///   ``addPermission(_:)``.
-    /// - Returns: The removed `PermissionGate` closure, or `nil` if no gate was
-    ///   registered under the given identifier.
     ///
     /// ## Thread Safety
     /// This method is thread-safe and can be called from any thread.
@@ -489,9 +499,10 @@ public extension Store {
     /// ### See Also
     /// - ``addPermission(_:)``
     ///
-    @discardableResult
-    func removePermission(withId id: UUID) -> PermissionGate? {
-        registry.withLock { $0.permissions.removeValue(forKey: id) }
+    func removePermission(withId id: UUID) {
+        scheduler.schedule { [weak self] in
+            self?.registry.permissions[id] = nil
+        }
     }
 
     /// Adds a middleware function to the store's action dispatch pipeline.
@@ -555,7 +566,9 @@ public extension Store {
         @ActionBuilder _ middleware: @escaping Middleware
     ) -> UUID {
         let id = UUID()
-        registry.withLock { $0.middleware[id] = middleware }
+        scheduler.schedule { [weak self] in
+            self?.registry.middleware[id] = middleware
+        }
         return id
     }
 
@@ -563,8 +576,6 @@ public extension Store {
     ///
     /// - Parameter id: The `UUID` returned when the middleware was added via
     ///   ``addMiddleware(_:)``.
-    /// - Returns: The removed `Middleware` closure, or `nil` if no middleware was
-    ///   registered under the given identifier.
     ///
     /// ## Thread Safety
     /// This method is thread-safe and can be called from any thread.
@@ -572,9 +583,10 @@ public extension Store {
     /// ### See Also
     /// - ``addMiddleware(_:)``
     ///
-    @discardableResult
-    func removeMiddleware(withId id: UUID) -> Middleware? {
-        registry.withLock { $0.middleware.removeValue(forKey: id) }
+    func removeMiddleware(withId id: UUID) {
+        scheduler.schedule { [weak self] in
+            self?.registry.middleware[id] = nil
+        }
     }
 
     /// Registers a ``ReduxEffect`` with the store's action pipeline.
@@ -610,12 +622,13 @@ public extension Store {
     /// - ``Store/removeEffect(withId:)``
     ///
     @discardableResult
-    func addEffect(_ effect: ReduxEffect<S,A>) -> UUID {
-        registry.withLock {
-            runningEffects.removeValue(forKey: effect.id)?.cancel()
-            $0.effects[effect.id] = effect
-            return effect.id
+    func addEffect(_ effect: ReduxEffect<S, A>) -> UUID {
+        scheduler.schedule { [weak self] in
+            self?.runningEffects.removeValue(forKey: effect.id)?.cancel()
+            self?.registry.effects[effect.id] = effect
+
         }
+        return effect.id
     }
 
     /// Registers an async effect using a closure shorthand.
@@ -661,7 +674,7 @@ public extension Store {
     ///
     @discardableResult
     func addEffect(
-        policy: ReduxEffect<S,A>.Policy = .merge,
+        policy: EffectPolicy = .merge,
         _ effect: @escaping @Sendable (S, A, (A) -> Void) async -> Void
     ) -> UUID {
         addEffect(ReduxEffect(policy: policy, run: effect))
@@ -670,44 +683,18 @@ public extension Store {
     /// Removes a previously installed effect by its identifier.
     ///
     /// Unregisters the effect so it no longer receives new action triggers.
-    /// The currently running task for this effect is cancelled, which means:
-    /// - For ``ReduxEffect/Policy/concat`` and ``ReduxEffect/Policy/switchToLatest``,
-    ///   the in-flight task is cancelled and no queued invocation will start.
-    /// - For ``ReduxEffect/Policy/merge``, the in-flight task continues running
-    ///   (cancellation is a no-op for concurrent tasks that don't check `isCancelled`).
+    /// The currently running task for this effect is cancelled.
     ///
-    /// - Parameter id: The `UUID` returned when the effect was added via
-    ///   ``Store/addEffect(_:)``.
-    /// - Returns: The removed ``ReduxEffect``, or `nil` if no effect was
-    ///   registered under the given identifier.
-    ///
-    /// - Important: This method is thread-safe and can be called from any thread.
-    ///
-    /// - Note: Removal unregisters the effect for future dispatches. It does
-    ///   not guarantee that an in-flight effect stops immediately — the effect
-    ///   closure is responsible for checking task cancellation.
-    ///
-    /// ### Example:
-    /// ```swift
-    /// let id = store.addEffect { state, action, dispatch in
-    ///     // ...
-    /// }
-    ///
-    /// // Later, remove the effect
-    /// if let removed = store.removeEffect(withId: id) {
-    ///     print("Effect \(removed.id) was removed")
-    /// }
-    /// ```
+    /// - Note: cancellation is a no-op for ReduxEffect tasks that don't check `isCancelled`
     ///
     /// ### See Also
     /// - ``Store/addEffect(_:)``
     ///
-    @discardableResult
-    func removeEffect(withId id: UUID) -> ReduxEffect<S,A>? {
+    func removeEffect(withId id: UUID) {
         scheduler.schedule { [weak self] in
             self?.runningEffects.removeValue(forKey: id)?.cancel()
+            self?.registry.effects.removeValue(forKey: id)
         }
-        return registry.withLock { $0.effects.removeValue(forKey: id) }
     }
 
     /// Creates an `AsyncStream` that emits state updates from the store.
@@ -759,7 +746,7 @@ public extension Store {
             }
         }
     }
-    
+
     /// Provides an `AsyncStream` that emits the store instance whenever its state changes.
     ///
     /// `onChange` returns a stream that yields the entire store instance (not just its state)

@@ -6,7 +6,7 @@
 //
 
 import Testing
-import ReduxCore
+@testable import ReduxCore
 
 struct StoreEffectTests {
     
@@ -23,18 +23,17 @@ struct StoreEffectTests {
         }
         let recorder = Recorder()
         
-        sut.addEffect { state, action, _ in
+        let id = sut.addEffect { state, action, _ in
             await recorder.record(state, action)
         }
         
         sut.dispatch(5)
         await sut.scheduler.flush()
-        await waitUntil { await recorder.states.count == 1 }
-        
-        let states = await recorder.states
-        let actions = await recorder.actions
-        #expect(states == [5])
-        #expect(actions == [5])
+        await sut.runningEffects[id]?.value
+
+        await #expect(recorder.states.count == 1)
+        await #expect(recorder.states == [5])
+        await #expect(recorder.actions == [5])
     }
     
     @Test func testMultipleEffectsRunConcurrently() async throws {
@@ -55,9 +54,11 @@ struct StoreEffectTests {
         
         sut.dispatch(1)
         await sut.scheduler.flush()
-        await waitUntil { await recorder.count == 2 }
+        for (_, task) in sut.runningEffects {
+            await task.value
+        }
         
-        #expect(await recorder.count == 2)
+        await #expect(recorder.count == 2)
     }
     
     @Test func testRemoveEffectStopsExecution() async throws {
@@ -72,15 +73,13 @@ struct StoreEffectTests {
         let id = sut.addEffect { _,_,_ in
             await recorder.increment()
         }
-        
-        // Removal returns the registered effect.
-        let removed = sut.removeEffect(withId: id)
-        #expect(removed?.id == id)
+
+        sut.removeEffect(withId: id)
         
         sut.dispatch(1)
         await sut.scheduler.flush()
         
-        #expect(await recorder.count == 0)
+        await #expect(recorder.count == 0)
     }
 
     @Test func testPermissionBlockedActionDoesNotTriggerEffect() async throws {
@@ -118,18 +117,19 @@ struct StoreEffectTests {
         }
         let recorder = SnapshotRecorder()
 
-        sut.addEffect { state, action, _ in
+        let id = sut.addEffect { state, action, _ in
             await recorder.record(state, action)
         }
 
         sut.dispatch(5)
         await sut.scheduler.flush()
-        await waitUntil { await recorder.states.count == 1 }
+        await sut.runningEffects[id]?.value
 
         // Effects fire per reduced action even when the reducer leaves the
         // state untouched; the effect sees the unchanged state.
-        #expect(await recorder.states == [0])
-        #expect(await recorder.actions == [5])
+        await #expect(recorder.states.count == 1)
+        await #expect(recorder.states == [0])
+        await #expect(recorder.actions == [5])
     }
 
 }

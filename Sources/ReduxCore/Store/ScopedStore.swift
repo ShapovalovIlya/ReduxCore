@@ -48,7 +48,7 @@ import Foundation
     @inlinable
     var onChange: AsyncStream<ScopedStore> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            Task { [weak self] in
+            _ = Task { [weak self] in
                 defer {
                     continuation.finish()
                 }

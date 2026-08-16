@@ -7,6 +7,40 @@
 
 import Foundation
 
+/// Determines how a new invocation of an effect is scheduled when a
+/// previous invocation is still running.
+///
+/// The policy is evaluated each time an action triggers the effect.
+/// If no previous task exists, or the previous task was already cancelled,
+/// the effect runs immediately regardless of policy.
+///
+/// ### Cases
+/// - ``merge``: Run concurrently with any in-flight invocation.
+/// - ``concat``: Wait for the previous task to finish, then run.
+/// - ``switchToLatest``: Cancel the previous task and run immediately.
+public enum EffectPolicy: Sendable {
+    /// Run the new invocation concurrently with any in-flight task.
+    ///
+    /// The previous task continues running in the background and is not
+    /// cancelled. Both invocations execute in parallel, which is suitable
+    /// for fire-and-forget effects like analytics or logging.
+    case merge
+
+    /// Wait for the previous task to finish before running the new invocation.
+    ///
+    /// Creates a sequential queue of effect invocations. Use this when the
+    /// order of execution matters and you want every invocation to complete.
+    case concat
+
+    /// Cancel the previous task and run the new invocation immediately.
+    ///
+    /// The previous task is cancelled via its `Task.isCancelled` flag.
+    /// Your effect should check for cancellation in long-running loops
+    /// to respond promptly. Use this for search-as-you-type or any
+    /// scenario where only the latest result matters.
+    case switchToLatest
+}
+
 /// An async side-effect handler that runs after each action is reduced.
 ///
 /// Effects observe the updated state and the action that caused the change,
@@ -35,44 +69,19 @@ import Foundation
 /// store.addEffect(effect)
 /// ```
 public struct ReduxEffect<S,A>: Sendable {
-    /// Determines how a new invocation of an effect is scheduled when a
-    /// previous invocation is still running.
-    ///
-    /// The policy is evaluated each time an action triggers the effect.
-    /// If no previous task exists, or the previous task was already cancelled,
-    /// the effect runs immediately regardless of policy.
-    ///
-    /// ### Cases
-    /// - ``merge``: Run concurrently with any in-flight invocation.
-    /// - ``concat``: Wait for the previous task to finish, then run.
-    /// - ``switchToLatest``: Cancel the previous task and run immediately.
-    public enum Policy: Sendable {
-        /// Run the new invocation concurrently with any in-flight task.
-        ///
-        /// The previous task continues running in the background and is not
-        /// cancelled. Both invocations execute in parallel, which is suitable
-        /// for fire-and-forget effects like analytics or logging.
-        case merge
-
-        /// Wait for the previous task to finish before running the new invocation.
-        ///
-        /// Creates a sequential queue of effect invocations. Use this when the
-        /// order of execution matters and you want every invocation to complete.
-        case concat
-
-        /// Cancel the previous task and run the new invocation immediately.
-        ///
-        /// The previous task is cancelled via its `Task.isCancelled` flag.
-        /// Your effect should check for cancellation in long-running loops
-        /// to respond promptly. Use this for search-as-you-type or any
-        /// scenario where only the latest result matters.
-        case switchToLatest
-    }
-
     public let id: UUID
     public let priority: TaskPriority?
-    public let policy: Policy
-    public let run: @Sendable (S, A, (A) -> Void) async -> Void
+    public let policy: EffectPolicy
+    private let _run: @Sendable (S, A, (A) -> Void) async -> Void
+
+    @Sendable
+    public func run(
+        state: S,
+        action: A,
+        send: (A) -> Void
+    ) async {
+        await _run(state, action, send)
+    }
 
     /// Creates a new effect with the specified identifier, priority, scheduling policy, and execution closure.
     ///
@@ -103,12 +112,12 @@ public struct ReduxEffect<S,A>: Sendable {
     public init(
         id: UUID = UUID(),
         priority: TaskPriority? = nil,
-        policy: Policy = .merge,
+        policy: EffectPolicy = .merge,
         run: @escaping @Sendable (S, A, (A) -> Void) async -> Void
     ) {
         self.id = id
         self.priority = priority
         self.policy = policy
-        self.run = run
+        self._run = run
     }
 }
